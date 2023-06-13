@@ -2,8 +2,13 @@
 name = "brickdb"
 version = "0.1.0"
 edition = "2021"
+description = "A basic proof-of-concept database written in Rust."
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/a-poor/brickdb"
+keywords = ["database", "storage"]
+categories = ["database"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 name = "brickdb_lib"
