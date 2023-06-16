@@ -1,10 +1,12 @@
-use bson::Document;
+use std::collections::BTreeMap;
+use bson::{Document, DateTime};
+use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
 /// A struct representing an LSM Tree managing both in-memory and on-disk data.
 pub struct LSMTree {
     /// The unique identifier for this LSM Tree.
-    pub id: bson::oid::ObjectId,
+    pub id: ObjectId,
 
     /// The name of this LSM Tree.
     pub name: String,
@@ -42,7 +44,9 @@ pub struct LSMTreeConfig {
 /// The in-memory buffer for an LSM Tree.
 /// 
 /// This buffer is comprised of a red-black tree of records, sorted by key.
-pub struct MemTable;
+pub struct MemTable {
+    pub records: BTreeMap<ObjectId, Value<Document>>,
+}
 
 /// An on-disk level in the LSM Tree, comprised of zero or more SSTables.
 pub struct Level {
@@ -73,7 +77,7 @@ pub struct SSTable {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Record {
     /// The record's unique key.
-    pub key: bson::oid::ObjectId,
+    pub key: ObjectId,
 
     /// The record's value.
     pub value: Value<Document>,
@@ -93,12 +97,11 @@ pub enum Value<T> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SSTableMeta {
-    pub id: bson::oid::ObjectId,
-    pub created_at: bson::DateTime,
+    pub id: ObjectId,
+    pub created_at: DateTime,
     pub min_key: String,
     pub max_key: String,
     pub num_records: usize,
-    // pub summary: SSTableSummary, // NOTE - Is this needed?
 }
 
 

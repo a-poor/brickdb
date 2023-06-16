@@ -32,6 +32,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b4ff8b16e6076c3e14220b39fbc1fabb6737522281a388998046859400895f"
 
 [[package]]
+name = "bit-vec"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+
+[[package]]
 name = "bitvec"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -49,8 +55,19 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9fd1983033b639933d035fc1d7b99acede56d3c4dd1d6fc20c474d2ed366092"
 dependencies = [
- "bit-vec",
+ "bit-vec 0.4.4",
  "rand 0.3.23",
+]
+
+[[package]]
+name = "bloomfilter"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8129c0ab340c1b0caf6dbc587e814d04ba811e336dcf8fc268c04e047428ebb0"
+dependencies = [
+ "bit-vec 0.6.3",
+ "getrandom",
+ "siphasher",
 ]
 
 [[package]]
@@ -58,6 +75,7 @@ name = "brickdb"
 version = "0.1.0"
 dependencies = [
  "bloom",
+ "bloomfilter",
  "bson",
  "serde",
  "serde_cbor",
@@ -427,6 +445,12 @@ dependencies = [
  "quote",
  "syn 1.0.109",
 ]
+
+[[package]]
+name = "siphasher"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bd3e3206899af3f8b12af284fafc038cc1dc2b41d1b89dd17297221c5d225de"
 
 [[package]]
 name = "strsim"
