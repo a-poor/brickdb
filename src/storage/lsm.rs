@@ -3,6 +3,16 @@ use bson::{Document, DateTime};
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
+/// The maximum number of tables per level in the LSM Tree.
+pub const MAX_TABLES_PER_LEVEL: usize = 10;
+
+/// The maximum number of records to store in the memtable 
+/// before flushing to disk. This will also be the max size 
+/// of a single SSTable in the first (on-disk) level of 
+/// the LSM Tree.
+pub const MEMTABLE_MAX_SIZE: usize = 100;
+
+
 /// A struct representing an LSM Tree managing both in-memory and on-disk data.
 pub struct LSMTree {
     /// The unique identifier for this LSM Tree.
@@ -11,9 +21,6 @@ pub struct LSMTree {
     /// The name of this LSM Tree.
     pub name: String,
 
-    /// The configuration for this LSM Tree.
-    pub config: LSMTreeConfig,
-
     /// The in-memory buffer for this LSM Tree.
     pub memtable: MemTable,
 
@@ -21,24 +28,58 @@ pub struct LSMTree {
     pub levels: Vec<Level>,
 }
 
-/// Configuration for an LSM Tree.
-/// 
-/// Note that in this early iteration, the configuration will be very simple.
-pub struct LSMTreeConfig {
-    /// The maximum number of records to store in the in-memory buffer before
-    /// flushing to disk.
-    pub memtable_size: usize,
+impl LSMTree {
+    /// Creates a new LSM Tree with the given name.
+    pub fn new(name: String) -> Self {
+        LSMTree {
+            id: ObjectId::new(),
+            name,
+            memtable: MemTable {
+                records: BTreeMap::new(),
+            },
+            levels: vec![],
+        }
+    }
 
-    /// The maximum number of SSTables to store in the first level of the LSMTree.
-    /// 
-    /// Subsequent levels will have a maximum number of SSTables equal to the
-    /// previous level's maximum divided by the `max_sstable_factor`.
-    pub max_sstables_level1: usize,
+    /// Inserts a new record into the LSM Tree.
+    pub fn insert(&mut self, key: ObjectId, value: Value<Document>) {
+        self.memtable.records.insert(key, value);
+    }
 
-    /// The maximum number of SSTables to store in each level of the LSMTree after
-    /// the first level. This number will be divided by previous level's maximum
-    /// to determine the maximum number of SSTables in the next level.
-    pub max_sstable_factor: usize,
+    pub fn set(&mut self, key: ObjectId, doc: Document) {
+        self.insert(key, Value::Data(doc));
+    }
+
+    pub fn del(&mut self, key: ObjectId) {
+        self.insert(key, Value::Tombstone);
+    }
+
+    fn get_from_memtable(&self, key: ObjectId) -> Option<Value<Document>> {
+        match self.memtable.records.get(&key) {
+            Some(value) => Some(value.clone()),
+            None => None,
+        }
+    }
+    
+    fn get_from_disk(&self, _key: ObjectId) -> Option<Value<Document>> {
+        unimplemented!();
+    }
+    
+    pub fn get(&self, key: ObjectId) -> Option<Document> {
+        match self.get_from_memtable(key) {
+            Some(value) => match value {
+                Value::Data(doc) => Some(doc),
+                Value::Tombstone => None,
+            },
+            None => match self.get_from_disk(key) {
+                Some(value) => match value {
+                    Value::Data(doc) => Some(doc),
+                    Value::Tombstone => None,
+                },
+                None => None,
+            }
+        }
+    }
 }
 
 /// The in-memory buffer for an LSM Tree.
@@ -50,7 +91,7 @@ pub struct MemTable {
 
 /// An on-disk level in the LSM Tree, comprised of zero or more SSTables.
 pub struct Level {
-    pub sstables: Vec<SSTableHandle>,
+    pub tables: Vec<SSTableHandle>,
 }
 
 pub struct LevelMeta {
@@ -74,7 +115,7 @@ pub struct SSTable {
 }
 
 /// A record stored in an SSTable.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Record {
     /// The record's unique key.
     pub key: ObjectId,
@@ -85,7 +126,7 @@ pub struct Record {
 
 /// A value stored in an SSTable. Can represent either a true value or a 
 /// tombstone (indicating that the record has been deleted).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Value<T> {
     /// A true value.
     Data(T),
