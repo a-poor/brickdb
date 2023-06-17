@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use bson::{Document, DateTime};
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
+use anyhow::{anyhow, Result};
+use bloom::{BloomFilter, Unionable, ASMS};
 
 /// The maximum number of tables per level in the LSM Tree.
 pub const MAX_TABLES_PER_LEVEL: usize = 10;
@@ -11,6 +13,12 @@ pub const MAX_TABLES_PER_LEVEL: usize = 10;
 /// of a single SSTable in the first (on-disk) level of 
 /// the LSM Tree.
 pub const MEMTABLE_MAX_SIZE: usize = 100;
+
+pub const BLOOM_FILTER_SIZE: u32 = 1000;
+
+pub const BLOOM_FILTER_ERROR_RATE: f32 = 0.01;
+
+pub const LEVEL_META_FILE: &str = "_meta.bson";
 
 
 /// A struct representing an LSM Tree managing both in-memory and on-disk data.
@@ -26,18 +34,20 @@ pub struct LSMTree {
 
     /// The on-disk levels for this LSM Tree.
     pub levels: Vec<Level>,
+
+    /// The path to the directory where this LSM Tree's data is stored.
+    pub path: String,
 }
 
 impl LSMTree {
     /// Creates a new LSM Tree with the given name.
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, path: String) -> Self {
         LSMTree {
             id: ObjectId::new(),
             name,
-            memtable: MemTable {
-                records: BTreeMap::new(),
-            },
+            memtable: MemTable::new(),
             levels: vec![],
+            path,
         }
     }
 
@@ -46,14 +56,17 @@ impl LSMTree {
         self.memtable.records.insert(key, value);
     }
 
+    /// Set a key to a value in the LSM Tree.
     pub fn set(&mut self, key: ObjectId, doc: Document) {
         self.insert(key, Value::Data(doc));
     }
 
+    /// Delete a key from the LSM Tree.
     pub fn del(&mut self, key: ObjectId) {
         self.insert(key, Value::Tombstone);
     }
 
+    /// Get a value from the LSM Tree's in-memory buffer.
     fn get_from_memtable(&self, key: ObjectId) -> Option<Value<Document>> {
         match self.memtable.records.get(&key) {
             Some(value) => Some(value.clone()),
@@ -61,23 +74,27 @@ impl LSMTree {
         }
     }
     
+    /// Get a value from the LSM Tree's on-disk levels.
     fn get_from_disk(&self, _key: ObjectId) -> Option<Value<Document>> {
         unimplemented!();
     }
     
+    /// Get a value from the LSM Tree.
+    /// 
+    /// This will first check the in-memory buffer, then the on-disk levels.
     pub fn get(&self, key: ObjectId) -> Option<Document> {
-        match self.get_from_memtable(key) {
+        if let Some(value) = self.get_from_memtable(key) {
+            return match value {
+                Value::Data(doc) => Some(doc),
+                Value::Tombstone => None,
+            };
+        }
+        match self.get_from_disk(key) {
             Some(value) => match value {
                 Value::Data(doc) => Some(doc),
                 Value::Tombstone => None,
             },
-            None => match self.get_from_disk(key) {
-                Some(value) => match value {
-                    Value::Data(doc) => Some(doc),
-                    Value::Tombstone => None,
-                },
-                None => None,
-            }
+            None => None,
         }
     }
 }
@@ -89,20 +106,162 @@ pub struct MemTable {
     pub records: BTreeMap<ObjectId, Value<Document>>,
 }
 
-/// An on-disk level in the LSM Tree, comprised of zero or more SSTables.
-pub struct Level {
-    pub tables: Vec<SSTableHandle>,
+impl MemTable {
+    /// Creates a new MemTable.
+    pub fn new() -> Self {
+        MemTable {
+            records: BTreeMap::new(),
+        }
+    }
+
+    /// Flushes the contents of the MemTable to disk, returning an SSTable.
+    pub fn flush(&mut self) -> Result<SSTable> {
+        // Create a vector of records from the BTreeMap...
+        let records: Vec<_> = self.records
+            .iter()
+            .map(|(key, value)| {
+                Record {
+                    key: key.clone(),
+                    value: value.clone(),
+                }
+            })
+            .collect();
+
+        // Get the min/max keys and count from the records...
+        let min_key = records
+            .first()
+            .ok_or(anyhow!("records vec was empty"))?
+            .key
+            .clone();
+        let max_key = records
+            .last()
+            .ok_or(anyhow!("records vec was empty"))?
+            .key
+            .clone();
+        let num_records = records.len();
+        let meta = SSTableMeta {
+            id: ObjectId::new(),
+            created_at: DateTime::now(),
+            min_key,
+            max_key,
+            num_records,
+        };
+
+        // Create and return!
+        Ok(SSTable {
+            meta,
+            records,
+        })
+    }
 }
 
-pub struct LevelMeta {
+/// An on-disk level in the LSM Tree, comprised of zero or more SSTables.
+pub struct Level {
+    /// The metadata for this level.
+    pub meta: LevelMeta,
 
+    /// The SSTables in this level.
+    pub tables: Vec<SSTableHandle>,
+
+    /// A Bloom filter for this level.
+    pub bloom_filter: BloomFilter,
+}
+
+impl Level {
+    pub fn new(meta: LevelMeta, tables: Vec<SSTableHandle>) -> Result<Self> {
+        let bloom_filter = BloomFilter::with_rate(
+            BLOOM_FILTER_ERROR_RATE, 
+            BLOOM_FILTER_SIZE,
+        );
+        Ok(Level {
+            meta,
+            tables,
+            bloom_filter,
+        })
+    }
+
+    pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
+        let mut bloom_filter = BloomFilter::with_rate(
+            BLOOM_FILTER_ERROR_RATE, 
+            BLOOM_FILTER_SIZE,
+        );
+        for table in &self.tables {
+            let table_bloom_filter = table.get_bloom_filter()?;
+            bloom_filter.union(&table_bloom_filter);
+        }
+        Ok(bloom_filter)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LevelMeta {
+    /// A unique identifier for this level.
+    pub id: ObjectId,
+
+    /// The time at which this level was created.
+    pub created_at: DateTime,
+
+    /// The level number (1 is the first on-disk level).
+    pub level: usize,
+
+    /// The number of SSTables in this level.
+    pub num_tables: usize,
 }
 
 /// A handle that stores the location of an SSTable on disk as well as some metadata.
-pub struct SSTableHandle;
+pub struct SSTableHandle {
+    /// The metadata for this SSTable.
+    pub meta: SSTableMeta,
 
-/// In-memory summary data associated with an SSTable on disk.
-pub struct SSTableSummary;
+    /// The path to this SSTable on disk.
+    pub path: String,
+}
+
+impl SSTableHandle {
+    /// Creates a new SSTableHandle.
+    pub fn new(meta: SSTableMeta, path: String) -> Self {
+        SSTableHandle {
+            meta,
+            path,
+        }
+    }
+
+    /// Reads the SSTable from disk.
+    pub fn read(&self) -> Result<SSTable> {
+        let file = std::fs::File::open(&self.path)?;
+        let reader = std::io::BufReader::new(file);
+        let sstable = bson::from_reader(reader)?;
+        Ok(sstable)
+    }
+
+    /// Writes the SSTable to disk.
+    pub fn write(&self, sstable: &SSTable) -> Result<()> {
+        let file = std::fs::File::create(&self.path)?;
+        let writer = std::io::BufWriter::new(file);
+        let doc = bson::to_document(sstable)?;
+        doc.to_writer(writer)?;
+        Ok(())
+    }
+
+    /// Deletes the SSTable from disk.
+    pub fn delete(&self) -> Result<()> {
+        std::fs::remove_file(&self.path)?;
+        Ok(())
+    }
+
+    /// Returns a bloom filter for this SSTable.
+    pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
+        let mut bf = BloomFilter::with_rate(
+            BLOOM_FILTER_ERROR_RATE, 
+            BLOOM_FILTER_SIZE,
+        );
+        let sstable = self.read()?;
+        for record in sstable.records {
+            bf.insert(&record.key);
+        }
+        Ok(bf)
+    }
+}
 
 /// An SSTable read from disk.
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,6 +271,25 @@ pub struct SSTable {
 
     /// The records in this SSTable.
     pub records: Vec<Record>,
+}
+
+/// Metadata associated with an SSTable on disk.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SSTableMeta {
+    /// A unique identifier for this SSTable.
+    pub id: ObjectId,
+
+    /// The time at which this SSTable was created.
+    pub created_at: DateTime,
+
+    /// The minimum key in this SSTable.
+    pub min_key: ObjectId,
+
+    /// The maximum key in this SSTable.
+    pub max_key: ObjectId,
+
+    /// The number of records in this SSTable.
+    pub num_records: usize,
 }
 
 /// A record stored in an SSTable.
@@ -133,16 +311,6 @@ pub enum Value<T> {
 
     /// A tombstone value indicating that the record has been deleted.
     Tombstone,
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SSTableMeta {
-    pub id: ObjectId,
-    pub created_at: DateTime,
-    pub min_key: String,
-    pub max_key: String,
-    pub num_records: usize,
 }
 
 
