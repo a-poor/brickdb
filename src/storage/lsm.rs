@@ -37,26 +37,14 @@ impl LSMTree {
         }
     }
 
-    /// Inserts a new record into the LSM Tree.
-    pub fn insert(&mut self, key: ObjectId, value: Value<Document>) {
-        self.memtable.records.insert(key, value);
-    }
-
     /// Set a key to a value in the LSM Tree.
     pub fn set(&mut self, key: ObjectId, doc: Document) {
-        self.insert(key, Value::Data(doc));
+        self.memtable.set(key, doc);
     }
 
     /// Delete a key from the LSM Tree.
     pub fn del(&mut self, key: ObjectId) {
-        self.insert(key, Value::Tombstone);
-    }
-
-    /// Get a value from the LSM Tree's in-memory buffer.
-    fn get_from_memtable(&self, key: ObjectId) -> Option<Value<Document>> {
-        self.memtable.records
-            .get(&key)
-            .map(|value| value.clone())
+        self.memtable.del(key);
     }
     
     /// Get a value from the LSM Tree's on-disk levels.
@@ -68,7 +56,7 @@ impl LSMTree {
     /// 
     /// This will first check the in-memory buffer, then the on-disk levels.
     pub fn get(&self, key: ObjectId) -> Option<Document> {
-        if let Some(value) = self.get_from_memtable(key) {
+        if let Some(value) = self.memtable.get(key) {
             return match value {
                 Value::Data(doc) => Some(doc),
                 Value::Tombstone => None,
@@ -86,7 +74,5 @@ impl LSMTree {
 
 
 #[cfg(test)]
-mod test {
-
-}
+mod test {}
 

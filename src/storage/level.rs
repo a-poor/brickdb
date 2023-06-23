@@ -71,7 +71,5 @@ pub struct LevelMeta {
 
 
 #[cfg(test)]
-mod test {
-
-}
+mod test {}
 

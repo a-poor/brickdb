@@ -20,6 +20,24 @@ impl MemTable {
         Self::default()
     }
 
+    pub fn insert(&mut self, key: ObjectId, value: Value<Document>) {
+        self.records.insert(key, value);
+    }
+
+    pub fn set(&mut self, key: ObjectId, doc: Document) {
+        self.insert(key, Value::Data(doc));
+    }
+
+    pub fn del(&mut self, key: ObjectId) {
+        self.insert(key, Value::Tombstone);
+    }
+
+    pub fn get(&self, key: ObjectId) -> Option<Value<Document>> {
+        self.records
+            .get(&key)
+            .map(|value| value.clone())
+    }
+
     /// Flushes the contents of the MemTable to disk, returning an SSTable.
     pub fn flush(&mut self) -> Result<SSTable> {
         // Create a vector of records from the BTreeMap...
@@ -70,7 +88,71 @@ impl Default for MemTable {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use bson::doc;
 
+    #[test]
+    fn create() {
+        let _mt = MemTable::new();
+    }
+
+    #[test]
+    fn set_and_get() {
+        // Define a key/value pair to add to the memtable...
+        let k = ObjectId::new();
+        let v = doc! {
+            "msg": "Hello, World!",
+            "num": 42,
+            "skyIsBlue": true,
+        };
+        let exp = Some(Value::Data(v.clone()));
+
+        // Create an empty memtable...
+        let mut mt = MemTable::new();
+
+        // Add it to the memtable...
+        mt.set(k, v);
+
+        // Check that the BTree contains the key...
+        assert!(mt.records.contains_key(&k), "Key doesn't exist in the btree");
+
+        // Get the value back from the memtable...
+        let res = mt.get(k);
+
+        // Check that it matches...
+        assert_eq!(res, exp);
+    }
+
+    #[test]
+    fn set_del_get() {
+        // Define a key/value pair to add to the memtable...
+        let k = ObjectId::new();
+        let v = doc! {
+            "msg": "Hello, World!",
+            "num": 42,
+            "skyIsBlue": true,
+        };
+
+        // Create an empty memtable...
+        let mut mt = MemTable::new();
+
+        // Add it to the memtable...
+        mt.set(k, v);
+
+        // Check that the BTree contains the key...
+        assert!(mt.records.contains_key(&k), "Key doesn't exist in the btree");
+
+        // Delete the value from the memtable...
+        mt.del(k);
+
+        // Check that the key is still in the btree...
+        assert!(mt.records.contains_key(&k), "Key should still exist in the btree after 'deletion'");
+        
+        // Check that the returned value is a tombstone...
+        let res = mt.get(k);
+        let exp = Some(Value::<Document>::Tombstone);
+        assert_eq!(res, exp, "Expecting a present tombstone");
+    }
 }
 
 

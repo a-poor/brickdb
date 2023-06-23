@@ -96,9 +96,7 @@ pub struct SSTableMeta {
 
 
 #[cfg(test)]
-mod test {
-
-}
+mod test {}
 
 
 
