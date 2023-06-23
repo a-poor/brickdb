@@ -68,10 +68,9 @@ impl LSMTree {
 
     /// Get a value from the LSM Tree's in-memory buffer.
     fn get_from_memtable(&self, key: ObjectId) -> Option<Value<Document>> {
-        match self.memtable.records.get(&key) {
-            Some(value) => Some(value.clone()),
-            None => None,
-        }
+        self.memtable.records
+            .get(&key)
+            .map(|value| value.clone())
     }
     
     /// Get a value from the LSM Tree's on-disk levels.
@@ -109,9 +108,7 @@ pub struct MemTable {
 impl MemTable {
     /// Creates a new MemTable.
     pub fn new() -> Self {
-        MemTable {
-            records: BTreeMap::new(),
-        }
+        Self::default()
     }
 
     /// Flushes the contents of the MemTable to disk, returning an SSTable.
@@ -121,7 +118,7 @@ impl MemTable {
             .iter()
             .map(|(key, value)| {
                 Record {
-                    key: key.clone(),
+                    key: *key,
                     value: value.clone(),
                 }
             })
@@ -131,13 +128,11 @@ impl MemTable {
         let min_key = records
             .first()
             .ok_or(anyhow!("records vec was empty"))?
-            .key
-            .clone();
+            .key;
         let max_key = records
             .last()
             .ok_or(anyhow!("records vec was empty"))?
-            .key
-            .clone();
+            .key;
         let num_records = records.len();
         let meta = SSTableMeta {
             id: ObjectId::new(),
@@ -152,6 +147,14 @@ impl MemTable {
             meta,
             records,
         })
+    }
+}
+
+impl Default for MemTable {
+    fn default() -> Self {
+        MemTable {
+            records: BTreeMap::new(),
+        }
     }
 }
 
@@ -316,5 +319,5 @@ pub enum Value<T> {
 
 #[cfg(test)]
 mod test {
-    
+
 }
