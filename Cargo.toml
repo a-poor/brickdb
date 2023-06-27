@@ -1,6 +1,6 @@
 [package]
 name = "brickdb"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 description = "A basic proof-of-concept database written in Rust."
 readme = "README.md"
