@@ -8,7 +8,8 @@ use crate::storage::record::*;
 use crate::storage::conf::*;
 
 
-/// A handle that stores the location of an SSTable on disk as well as some metadata.
+/// A handle that stores the location of an SSTable on disk as 
+/// well as some metadata.
 pub struct SSTableHandle {
     /// The metadata for this SSTable.
     pub meta: SSTableMeta,
@@ -62,6 +63,11 @@ impl SSTableHandle {
             bf.insert(&record.key);
         }
         Ok(bf)
+    }
+
+    /// Returns true if the given key is in the range of this SSTable.
+    pub fn key_in_range(&self, key: &ObjectId) -> bool {
+        self.meta.min_key <= *key && *key <= self.meta.max_key
     }
 }
 
