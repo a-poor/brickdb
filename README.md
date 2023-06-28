@@ -1,9 +1,9 @@
 # BrickDB
 
 [![Rust Test](https://github.com/a-poor/brickdb/actions/workflows/rust-test.yml/badge.svg)](https://github.com/a-poor/brickdb/actions/workflows/rust-test.yml)
-![Crates.io](https://img.shields.io/crates/v/brickdb)
-![Crates.io](https://img.shields.io/crates/l/brickdb)
-![docs.rs](https://img.shields.io/docsrs/brickdb)
+[![Crates.io](https://img.shields.io/crates/v/brickdb)](https://crates.io/crates/brickdb)
+[![Crates.io](https://img.shields.io/crates/l/brickdb)](https://crates.io/crates/brickdb)
+[![docs.rs](https://img.shields.io/docsrs/brickdb)](https://docs.rs/brickdb)
 
 
 
