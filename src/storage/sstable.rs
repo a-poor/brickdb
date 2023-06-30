@@ -1,7 +1,7 @@
 use bson::{DateTime};
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
 
 use crate::storage::record::*;
@@ -64,11 +64,6 @@ impl SSTableHandle {
         }
         Ok(bf)
     }
-
-    /// Returns true if the given key is in the range of this SSTable.
-    pub fn key_in_range(&self, key: &ObjectId) -> bool {
-        self.meta.min_key <= *key && *key <= self.meta.max_key
-    }
 }
 
 /// An SSTable read from disk.
@@ -81,8 +76,40 @@ pub struct SSTable {
     pub records: Vec<Record>,
 }
 
+impl SSTable {
+    pub fn new(records: Vec<Record>) -> Result<Self> {
+        // Create a new id...
+        let id = ObjectId::new();
+
+        // Get the datetime...
+        let created_at = id.timestamp();
+
+        // Get the min/max keys and count from the records...
+        let min_key = records
+            .first()
+            .ok_or(anyhow!("records vec was empty"))?
+            .key;
+        let max_key = records
+            .last()
+            .ok_or(anyhow!("records vec was empty"))?
+            .key;
+
+        // Create the SSTable...
+        Ok(SSTable { 
+            meta: SSTableMeta {
+                id,
+                created_at,
+                min_key,
+                max_key,
+                num_records: records.len(),
+            },
+            records,
+        })
+    }
+}
+
 /// Metadata associated with an SSTable on disk.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SSTableMeta {
     /// A unique identifier for this SSTable.
     pub id: ObjectId,
@@ -100,9 +127,69 @@ pub struct SSTableMeta {
     pub num_records: usize,
 }
 
+impl SSTableMeta {
+    /// Returns true if the given key is in the range of this SSTable.
+    pub fn key_in_range(&self, key: &ObjectId) -> bool {
+        self.min_key <= *key && *key <= self.max_key
+    }
+}
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+
+    #[test]
+    fn meta_oid_in_range() {
+        // Create three ObjectIds and ensure they're in order...
+        let oid1 = ObjectId::new();
+        let oid2 = ObjectId::new();
+        let oid3 = ObjectId::new();
+        assert!(oid1 < oid2, "Expected object ids out of order");
+        assert!(oid2 < oid3, "Expected object ids out of order");
+
+        // Create a meta with oid1 and oid3...
+        let meta = SSTableMeta {
+            id: ObjectId::new(),
+            created_at: DateTime::now(),
+            min_key: oid1,
+            max_key: oid3,
+            num_records: 0,
+        };
+        
+        // oid 1, 2, and 3 should be in range...
+        assert!(meta.key_in_range(&oid1), "Expected oid1 to be in range");
+        assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
+        assert!(meta.key_in_range(&oid3), "Expected oid3 to be in range");
+
+        // Create a meta with oid1 and oid2...
+        let meta = SSTableMeta {
+            id: ObjectId::new(),
+            created_at: DateTime::now(),
+            min_key: oid1,
+            max_key: oid2,
+            num_records: 0,
+        };
+        
+        // oid 1 and 2 should be in range, 3 should not...
+        assert!(meta.key_in_range(&oid1), "Expected oid1 to be in range");
+        assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
+        assert!(!meta.key_in_range(&oid3), "Expected oid3 to be out of range");
+
+        // Create a meta with oid2 and oid3...
+        let meta = SSTableMeta {
+            id: ObjectId::new(),
+            created_at: DateTime::now(),
+            min_key: oid2,
+            max_key: oid3,
+            num_records: 0,
+        };
+        
+        // oid 2 and 3 should be in range, 1 should not...
+        assert!(!meta.key_in_range(&oid1), "Expected oid1 to be out of range");
+        assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
+        assert!(meta.key_in_range(&oid3), "Expected oid3 to be in range");
+    }
+}
 
 
 
