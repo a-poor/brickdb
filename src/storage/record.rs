@@ -75,7 +75,7 @@ mod test {
             })
         };
         let r2 = Record {
-            key: r1.key.clone(),
+            key: r1.key,
             value: r1.value.clone(),
         };
         assert_eq!(r1, r2, "Records with cloned values, should match");
@@ -91,14 +91,14 @@ mod test {
             })
         };
         let r2 = Record {
-            key: r1.key.clone(),
+            key: r1.key,
             value: Value::Tombstone,
         };
         assert_ne!(r1, r2, "Same key but different values, shouldn't match");
         
         
         let r3 = Record {
-            key: r1.key.clone(),
+            key: r1.key,
             value: Value::Tombstone,
         };
         assert_eq!(r2, r3, "Same key and same (tombstone) values, should match");
@@ -167,15 +167,15 @@ mod test {
 
         // Search for the records...
         let p1 = records.binary_search(&Record {
-            key: r1.key.clone(),
+            key: r1.key,
             value: Value::Tombstone,
         });
         let p2 = records.binary_search(&Record {
-            key: r2.key.clone(),
+            key: r2.key,
             value: Value::Tombstone,
         });
         let p3 = records.binary_search(&Record {
-            key: r3.key.clone(),
+            key: r3.key,
             value: Value::Tombstone,
         });
 
