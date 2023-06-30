@@ -20,18 +20,25 @@ impl MemTable {
         Self::default()
     }
 
+    /// Inserts a record into the MemTable.
     pub fn insert(&mut self, key: ObjectId, value: Value<Document>) {
         self.records.insert(key, value);
     }
 
+    /// Sets a value in the MemTable.
     pub fn set(&mut self, key: ObjectId, doc: Document) {
         self.insert(key, Value::Data(doc));
     }
 
+    /// Delete's a value in the MemTable.
+    /// 
+    /// Note that this doesn't remove the key from the MemTable, but instead
+    /// sets the value to a tombstone.
     pub fn del(&mut self, key: ObjectId) {
         self.insert(key, Value::Tombstone);
     }
 
+    /// Gets a value from the MemTable.
     pub fn get(&self, key: ObjectId) -> Option<Value<Document>> {
         self.records
             .get(&key)
@@ -62,7 +69,7 @@ impl MemTable {
             .key;
         let num_records = records.len();
         let meta = SSTableMeta {
-            id: ObjectId::new(),
+            table_id: ObjectId::new(),
             created_at: DateTime::now(),
             min_key,
             max_key,

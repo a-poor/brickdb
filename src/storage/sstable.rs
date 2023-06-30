@@ -3,6 +3,7 @@ use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
+use core::cmp::Ordering;
 
 use crate::storage::record::*;
 use crate::storage::conf::*;
@@ -77,6 +78,7 @@ pub struct SSTable {
 }
 
 impl SSTable {
+    /// Create a new SSTable from a vector of records.
     pub fn new(records: Vec<Record>) -> Result<Self> {
         // Create a new id...
         let id = ObjectId::new();
@@ -97,7 +99,7 @@ impl SSTable {
         // Create the SSTable...
         Ok(SSTable { 
             meta: SSTableMeta {
-                id,
+                table_id: id,
                 created_at,
                 min_key,
                 max_key,
@@ -106,13 +108,111 @@ impl SSTable {
             records,
         })
     }
+
+    /// Get the index of the given key in the SSTable. If the key
+    /// isn't in the SSTable, returns None.
+    /// 
+    /// Note that this uses a binary search, so the records must be sorted
+    /// -- which they should be, already. This isn't a requirement of the type
+    /// but it is a requirement of the system overall. Additionally, there 
+    /// could be an issue if there are multiple records with the same key but,
+    /// again, that shouldn't happen based on the system's design.
+    pub fn get_index(&self, key: &ObjectId) -> Option<usize> {
+        self.records
+            .binary_search_by(|record| record.key.cmp(key))
+            .ok()
+    }
+
+    /// Get the record with the given key from the SSTable. If the key
+    /// isn't in the SSTable, returns None.
+    pub fn get(&self, key: &ObjectId) -> Option<Record> {
+        let i = self.get_index(key)?;
+        self.records
+            .get(i)
+            .map(|r| r.clone())
+    }
+
+    /// Get all records in the SSTable with keys in the given range (inclusive).
+    pub fn get_range(&self, min_key: &ObjectId, max_key: &ObjectId) -> Vec<Record> {
+        // Get the starting point...
+        let min_i = match self.get_index(min_key) {
+            Some(i) => i,
+            None => { return vec![]; },
+        };
+        
+        // Create a vector to store the records...
+        let mut records = vec![];
+
+        // Iterate over the records from min_i to the end...
+        for i in min_i..self.records.len() {
+            let record = &self.records[i];
+            if record.key > *max_key {
+                break;
+            }
+            records.push(record.clone());
+        }
+
+        // Return the records...
+        records
+    }
+
+    /// Create a new SSTable by merging this SSTable with another SSTable.
+    pub fn merge(&self, other: &SSTable) -> Result<SSTable> {
+        // Create a vec to store the merged records...
+        let mut records = vec![];
+
+        // Create indexes to track the position in each SSTable's records...
+        let mut i1 = 0;
+        let mut i2 = 0;
+
+        while i1 < self.records.len() && i2 < other.records.len() {
+            // Get the records at the current indexes...
+            let r1 = &self.records[i1];
+            let r2 = &other.records[i2];
+
+            // Compare the keys...
+            match r1.key.cmp(&r2.key) {
+                Ordering::Less => {
+                    // r1.key < r2.key
+                    records.push(r1.clone());
+                    i1 += 1;
+                },
+                Ordering::Greater => {
+                    // r1.key > r2.key
+                    records.push(r2.clone());
+                    i2 += 1;
+                },
+                Ordering::Equal => {
+                    // r1.key == r2.key
+                    records.push(r1.clone());
+                    i1 += 1;
+                    i2 += 1;
+                },
+            }
+        }
+
+        // Add any remaining records from self...
+        while i1 < self.records.len() {
+            records.push(self.records[i1].clone());
+            i1 += 1;
+        }
+
+        // Add any remaining records from other...
+        while i2 < other.records.len() {
+            records.push(other.records[i2].clone());
+            i2 += 1;
+        }
+
+        // Create the SSTable...
+        SSTable::new(records)
+    }
 }
 
 /// Metadata associated with an SSTable on disk.
-#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SSTableMeta {
     /// A unique identifier for this SSTable.
-    pub id: ObjectId,
+    pub table_id: ObjectId,
 
     /// The time at which this SSTable was created.
     pub created_at: DateTime,
@@ -139,7 +239,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn meta_oid_in_range() {
+    fn sstablemeta_key_in_range() {
         // Create three ObjectIds and ensure they're in order...
         let oid1 = ObjectId::new();
         let oid2 = ObjectId::new();
@@ -149,7 +249,7 @@ mod test {
 
         // Create a meta with oid1 and oid3...
         let meta = SSTableMeta {
-            id: ObjectId::new(),
+            table_id: ObjectId::new(),
             created_at: DateTime::now(),
             min_key: oid1,
             max_key: oid3,
@@ -163,7 +263,7 @@ mod test {
 
         // Create a meta with oid1 and oid2...
         let meta = SSTableMeta {
-            id: ObjectId::new(),
+            table_id: ObjectId::new(),
             created_at: DateTime::now(),
             min_key: oid1,
             max_key: oid2,
@@ -177,7 +277,7 @@ mod test {
 
         // Create a meta with oid2 and oid3...
         let meta = SSTableMeta {
-            id: ObjectId::new(),
+            table_id: ObjectId::new(),
             created_at: DateTime::now(),
             min_key: oid2,
             max_key: oid3,
