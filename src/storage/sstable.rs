@@ -161,46 +161,54 @@ impl SSTable {
         // Create a vec to store the merged records...
         let mut records = vec![];
 
-        // Create indexes to track the position in each SSTable's records...
-        let mut i1 = 0;
-        let mut i2 = 0;
+        // Check which SSTable is newer...
+        let (newer, older) = if self.meta.created_at > other.meta.created_at {
+            (self, other)
+        } else {
+            (other, self)
+        };
 
-        while i1 < self.records.len() && i2 < other.records.len() {
+        // Create indexes to track the position in each SSTable's records...
+        let mut i_newer = 0;
+        let mut i_older = 0;
+
+        while i_newer < newer.records.len() && i_older < older.records.len() {
             // Get the records at the current indexes...
-            let r1 = &self.records[i1];
-            let r2 = &other.records[i2];
+            let r_newer = &newer.records[i_newer];
+            let r_older = &other.records[i_older];
 
             // Compare the keys...
-            match r1.key.cmp(&r2.key) {
+            match r_newer.key.cmp(&r_older.key) {
                 Ordering::Less => {
-                    // r1.key < r2.key
-                    records.push(r1.clone());
-                    i1 += 1;
+                    // r_newer.key < r_older.key
+                    records.push(r_newer.clone());
+                    i_newer += 1;
                 },
                 Ordering::Greater => {
-                    // r1.key > r2.key
-                    records.push(r2.clone());
-                    i2 += 1;
+                    // r_newer.key > r_older.key
+                    records.push(r_older.clone());
+                    i_older += 1;
                 },
                 Ordering::Equal => {
                     // r1.key == r2.key
-                    records.push(r1.clone());
-                    i1 += 1;
-                    i2 += 1;
+                    // Add the newer and skip the older...
+                    records.push(r_newer.clone());
+                    i_newer += 1;
+                    i_older += 1;
                 },
             }
         }
 
         // Add any remaining records from self...
-        while i1 < self.records.len() {
-            records.push(self.records[i1].clone());
-            i1 += 1;
+        while i_newer < newer.records.len() {
+            records.push(newer.records[i_newer].clone());
+            i_newer += 1;
         }
 
         // Add any remaining records from other...
-        while i2 < other.records.len() {
-            records.push(other.records[i2].clone());
-            i2 += 1;
+        while i_older < older.records.len() {
+            records.push(older.records[i_older].clone());
+            i_older += 1;
         }
 
         // Create the SSTable...

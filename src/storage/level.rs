@@ -1,7 +1,7 @@
 use bson::DateTime;
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, Unionable, ASMS};
 
 use crate::storage::conf::*;
@@ -26,13 +26,18 @@ pub struct Level {
 
 impl Level {
     /// Create a new LSM Tree Level.
-    pub fn new(path: String, meta: LevelMeta, tables: Vec<SSTableHandle>) -> Result<Self> {
+    pub fn new(path: String, level_number: usize, tables: Vec<SSTableHandle>) -> Result<Self> {
         let bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
             BLOOM_FILTER_SIZE,
         );
         Ok(Level {
-            meta,
+            meta: LevelMeta {
+                id: ObjectId::new(),
+                created_at: DateTime::now(),
+                level: level_number,
+                num_tables: tables.len(),
+            },
             tables,
             bloom_filter,
             path,
@@ -90,11 +95,77 @@ impl Level {
     }
 
     /// Gets a record from this level, if it exists.
-    pub fn get(&self, _key: &ObjectId) -> Result<Option<Record>> {
-        unimplemented!();
+    /// 
+    /// # Arguments
+    /// 
+    /// * `key` - The key for the record to get.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a `Result` containing either a `Option<Record` or an `Error`.
+    /// If the `Result` is `Ok(Some(record))`, then the record was found. If
+    /// the `Result` is `Ok(None)`, then the record was not found. If the 
+    /// `Result` is `Err`, then an error occurred.
+    pub fn get(&self, key: &ObjectId) -> Result<Option<Record>> {
+        // Check the bloom filter first...
+        if self.doesnt_contain(key) {
+            return Ok(None);
+        }
+
+        // Then iterate through the SSTables...
+        for th in &self.tables {
+            // Check if the key is in range...
+            if !th.meta.key_in_range(key) {
+                // The key isn't in range, skip this table...
+                continue;
+            }
+
+            // Read in the table...
+            let sstable = th.read()?;
+
+            // Check if the table contains the key...
+            if let Some(record) = sstable.get(key) {
+                // Return the record if it exists...
+                return Ok(Some(record));
+            }
+        }
+        
+        // Key not found...
+        Ok(None)
+    }
+
+    /// Compacts the tables in this level into a single SSTable.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a reference the new SSTable.
+    pub fn compact_tables(&self) -> Result<SSTable> {
+        // Create a place to store the merged SSTable...
+        let mut res: Option<SSTable> = None;
+
+        // Iterate through the level's sstables...
+        for table in self.tables.iter() {
+            // Read in the table...
+            let sstable = table.read()?;
+            if let Some(prev) = res {
+                // Merge the table with the accumulated SSTable...
+                let m = prev.merge(&sstable)?;
+                res = Some(m);
+            } else {
+                // There is no accumulated SSTable, so just use this one...
+                res = Some(sstable);
+            }
+        }
+
+        // Return the merged SSTable.
+        match res {
+            Some(table) => Ok(table),
+            None => Err(anyhow!("No SSTable found")),
+        }
     }
 }
 
+/// The metadata for an LSM Tree Level.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LevelMeta {
     /// A unique identifier for this level.
