@@ -129,7 +129,7 @@ impl SSTable {
         let i = self.get_index(key)?;
         self.records
             .get(i)
-            .map(|r| r.clone())
+            .cloned()
     }
 
     /// Get all records in the SSTable with keys in the given range (inclusive).

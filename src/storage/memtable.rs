@@ -10,6 +10,7 @@ use crate::storage::sstable::*;
 /// The in-memory buffer for an LSM Tree.
 /// 
 /// This buffer is comprised of a red-black tree of records, sorted by key.
+#[derive(Default)]
 pub struct MemTable {
     pub records: BTreeMap<ObjectId, Value<Document>>,
 }
@@ -42,7 +43,7 @@ impl MemTable {
     pub fn get(&self, key: ObjectId) -> Option<Value<Document>> {
         self.records
             .get(&key)
-            .map(|value| value.clone())
+            .cloned()
     }
 
     /// Flushes the contents of the MemTable to disk, returning an SSTable.
@@ -84,13 +85,7 @@ impl MemTable {
     }
 }
 
-impl Default for MemTable {
-    fn default() -> Self {
-        MemTable {
-            records: BTreeMap::new(),
-        }
-    }
-}
+
 
 
 #[cfg(test)]
