@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 
 use crate::storage::record::*;
 use crate::storage::sstable::*;
+use crate::storage::conf::*;
 
 
 /// The in-memory buffer for an LSM Tree.
@@ -12,13 +13,20 @@ use crate::storage::sstable::*;
 /// This buffer is comprised of a red-black tree of records, sorted by key.
 #[derive(Default)]
 pub struct MemTable {
+    /// The records in the MemTable.
     pub records: BTreeMap<ObjectId, Value<Document>>,
+
+    /// The maximum number of records allowed in the MemTable.
+    pub max_records: usize,
 }
 
 impl MemTable {
     /// Creates a new MemTable.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            max_records: MEMTABLE_MAX_SIZE,
+            ..Default::default()
+        }
     }
 
     /// Inserts a record into the MemTable.
@@ -82,6 +90,16 @@ impl MemTable {
             meta,
             records,
         })
+    }
+
+    /// Check the size of the MemTable.
+    pub fn size(&self) -> usize {
+        self.records.len()
+    }
+
+    /// Check if the MemTable is full.
+    pub fn is_full(&self) -> bool {
+        self.size() >= self.max_records
     }
 }
 

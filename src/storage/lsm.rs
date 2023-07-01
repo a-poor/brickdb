@@ -28,13 +28,13 @@ pub struct LSMTree {
 
 impl LSMTree {
     /// Creates a new LSM Tree with the given name.
-    pub fn new(name: String, path: String) -> Self {
+    pub fn new(name: &str, path: &str) -> Self {
         LSMTree {
             id: ObjectId::new(),
-            name,
+            name: name.to_string(),
             memtable: MemTable::new(),
             levels: vec![],
-            path,
+            path: path.to_string(),
         }
     }
 

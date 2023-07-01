@@ -25,10 +25,10 @@ pub struct SSTableHandle {
 
 impl SSTableHandle {
     /// Creates a new SSTableHandle.
-    pub fn new(meta: SSTableMeta, path: String) -> Self {
+    pub fn new(meta: SSTableMeta, path: &str) -> Self {
         SSTableHandle {
             meta,
-            path,
+            path: path.to_string(),
             active: true,
         }
     }
@@ -226,6 +226,35 @@ impl SSTable {
 
         // Create the SSTable...
         SSTable::new(records)
+    }
+
+    /// Returns a handle for this SSTable.
+    /// 
+    /// If `write` is true, the SSTable will be written to disk before
+    /// returning the handle.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `path` - The path to the directory where this SSTable is stored.
+    /// * `write` - A flag indicating whether the SSTable should be opened
+    /// 
+    /// # Returns
+    /// 
+    /// An `SSTableHandle` for working with this SSTable on disk.
+    pub fn get_handle(&self, path: &str, write: bool) -> Result<SSTableHandle> {
+        // Create the handle...
+        let handle = SSTableHandle::new(
+            self.meta.clone(), 
+            path,
+        );
+
+        // If we're writing, write the SSTable to disk...
+        if write {
+            handle.write(self)?;
+        }
+
+        // Return the handle...
+        Ok(handle)
     }
 }
 

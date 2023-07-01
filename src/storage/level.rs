@@ -37,7 +37,7 @@ pub struct Level {
 
 impl Level {
     /// Create a new LSM Tree Level.
-    pub fn new(path: String, level_number: usize, tables: Vec<SSTableHandle>) -> Result<Self> {
+    pub fn new(path: &str, level_number: usize, tables: Vec<SSTableHandle>) -> Result<Self> {
         let bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
             BLOOM_FILTER_SIZE,
@@ -51,7 +51,7 @@ impl Level {
             },
             tables,
             bloom_filter,
-            path,
+            path: path.to_string(),
             max_tables: MAX_TABLES_PER_LEVEL,
             records_per_table: MEMTABLE_MAX_SIZE * level_number,
         })
@@ -103,7 +103,7 @@ impl Level {
         // Create the handle...
         let handle = SSTableHandle::new(
             table.meta.clone(), 
-            table_path,
+            table_path.as_str(),
         );
 
         // Write the table to disk...
