@@ -42,7 +42,7 @@ impl MemTable {
     /// Gets a value from the MemTable.
     pub fn get(&self, key: &ObjectId) -> Option<Value<Document>> {
         self.records
-            .get(&key)
+            .get(key)
             .cloned()
     }
 
@@ -92,11 +92,6 @@ impl MemTable {
 mod test {
     use super::*;
     use bson::doc;
-
-    #[test]
-    fn create() {
-        let _mt = MemTable::new();
-    }
 
     #[test]
     fn set_and_get() {

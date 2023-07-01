@@ -52,7 +52,7 @@ impl LSMTree {
     fn get_from_disk(&self, key: &ObjectId) -> Result<Option<Record>> {
         // Iterate through the levels...
         for level in self.levels.iter() {
-            if let Some(val) = level.get(&key)? {
+            if let Some(val) = level.get(key)? {
                 return Ok(Some(val));
             }
         }
