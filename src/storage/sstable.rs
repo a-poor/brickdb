@@ -17,6 +17,10 @@ pub struct SSTableHandle {
 
     /// The path to this SSTable on disk.
     pub path: String,
+
+    /// A flag indicating whether this SSTable is active
+    /// and should be considered for reads.
+    pub active: bool,
 }
 
 impl SSTableHandle {
@@ -25,7 +29,16 @@ impl SSTableHandle {
         SSTableHandle {
             meta,
             path,
+            active: true,
         }
+    }
+
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+
+    pub fn deactivate(&mut self) {
+        self.active = false;
     }
 
     /// Reads the SSTable from disk, from `self.path`.
@@ -217,7 +230,7 @@ impl SSTable {
 }
 
 /// Metadata associated with an SSTable on disk.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct SSTableMeta {
     /// A unique identifier for this SSTable.
     pub table_id: ObjectId,

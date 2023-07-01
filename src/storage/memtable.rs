@@ -22,12 +22,12 @@ impl MemTable {
     }
 
     /// Inserts a record into the MemTable.
-    pub fn insert(&mut self, key: ObjectId, value: Value<Document>) {
-        self.records.insert(key, value);
+    pub fn insert(&mut self, key: &ObjectId, value: Value<Document>) {
+        self.records.insert(*key, value);
     }
 
     /// Sets a value in the MemTable.
-    pub fn set(&mut self, key: ObjectId, doc: Document) {
+    pub fn set(&mut self, key: &ObjectId, doc: Document) {
         self.insert(key, Value::Data(doc));
     }
 
@@ -35,12 +35,12 @@ impl MemTable {
     /// 
     /// Note that this doesn't remove the key from the MemTable, but instead
     /// sets the value to a tombstone.
-    pub fn del(&mut self, key: ObjectId) {
+    pub fn del(&mut self, key: &ObjectId) {
         self.insert(key, Value::Tombstone);
     }
 
     /// Gets a value from the MemTable.
-    pub fn get(&self, key: ObjectId) -> Option<Value<Document>> {
+    pub fn get(&self, key: &ObjectId) -> Option<Value<Document>> {
         self.records
             .get(&key)
             .cloned()
@@ -113,13 +113,13 @@ mod test {
         let mut mt = MemTable::new();
 
         // Add it to the memtable...
-        mt.set(k, v);
+        mt.set(&k, v);
 
         // Check that the BTree contains the key...
         assert!(mt.records.contains_key(&k), "Key doesn't exist in the btree");
 
         // Get the value back from the memtable...
-        let res = mt.get(k);
+        let res = mt.get(&k);
 
         // Check that it matches...
         assert_eq!(res, exp);
@@ -139,19 +139,19 @@ mod test {
         let mut mt = MemTable::new();
 
         // Add it to the memtable...
-        mt.set(k, v);
+        mt.set(&k, v);
 
         // Check that the BTree contains the key...
         assert!(mt.records.contains_key(&k), "Key doesn't exist in the btree");
 
         // Delete the value from the memtable...
-        mt.del(k);
+        mt.del(&k);
 
         // Check that the key is still in the btree...
         assert!(mt.records.contains_key(&k), "Key should still exist in the btree after 'deletion'");
         
         // Check that the returned value is a tombstone...
-        let res = mt.get(k);
+        let res = mt.get(&k);
         let exp = Some(Value::<Document>::Tombstone);
         assert_eq!(res, exp, "Expecting a present tombstone");
     }

@@ -1,5 +1,6 @@
 use bson::Document;
 use bson::oid::ObjectId;
+use anyhow::Result;
 
 use crate::storage::record::*;
 use crate::storage::level::*;
@@ -38,36 +39,45 @@ impl LSMTree {
     }
 
     /// Set a key to a value in the LSM Tree.
-    pub fn set(&mut self, key: ObjectId, doc: Document) {
+    pub fn set(&mut self, key: &ObjectId, doc: Document) {
         self.memtable.set(key, doc);
     }
 
     /// Delete a key from the LSM Tree.
-    pub fn del(&mut self, key: ObjectId) {
+    pub fn del(&mut self, key: &ObjectId) {
         self.memtable.del(key);
     }
     
     /// Get a value from the LSM Tree's on-disk levels.
-    fn get_from_disk(&self, _key: ObjectId) -> Option<Value<Document>> {
-        unimplemented!();
+    fn get_from_disk(&self, key: &ObjectId) -> Result<Option<Record>> {
+        // Iterate through the levels...
+        for level in self.levels.iter() {
+            if let Some(val) = level.get(&key)? {
+                return Ok(Some(val));
+            }
+        }
+        Ok(None)
     }
     
     /// Get a value from the LSM Tree.
     /// 
     /// This will first check the in-memory buffer, then the on-disk levels.
-    pub fn get(&self, key: ObjectId) -> Option<Document> {
+    pub fn get(&self, key: &ObjectId) -> Result<Option<Document>> {
+        // First try to get it from the memtable...
         if let Some(value) = self.memtable.get(key) {
             return match value {
-                Value::Data(doc) => Some(doc),
-                Value::Tombstone => None,
+                Value::Data(doc) => Ok(Some(doc)),
+                Value::Tombstone => Ok(None),
             };
         }
-        match self.get_from_disk(key) {
-            Some(value) => match value {
-                Value::Data(doc) => Some(doc),
-                Value::Tombstone => None,
+
+        // Otherwise try to get it from disk...
+        match self.get_from_disk(key)? {
+            Some(rec) => match rec.value {
+                Value::Data(doc) => Ok(Some(doc)),
+                Value::Tombstone => Ok(None),
             },
-            None => None,
+            None => Ok(None),
         }
     }
 }

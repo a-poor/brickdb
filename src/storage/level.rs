@@ -1,3 +1,4 @@
+use std::path::Path;
 use bson::DateTime;
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,16 @@ pub struct Level {
 
     /// The path to this level's directory on disk.
     pub path: String,
+
+    /// The maximum number of tables allowed in this level
+    /// for it to be considered full.
+    pub max_tables: usize,
+    
+    /// The maximum number of records per table in this level.
+    /// 
+    /// Due to compaction, there may be fewer records in a 
+    /// given table in this level.
+    pub records_per_table: usize,
 }
 
 impl Level {
@@ -41,6 +52,8 @@ impl Level {
             tables,
             bloom_filter,
             path,
+            max_tables: MAX_TABLES_PER_LEVEL,
+            records_per_table: MEMTABLE_MAX_SIZE * level_number,
         })
     }
 
@@ -73,25 +86,74 @@ impl Level {
     pub fn doesnt_contain(&self, key: &ObjectId) -> bool {
         !self.bloom_filter.contains(key)
     }
+    
+    fn format_table_path(&self, id: &ObjectId) -> Option<String> {
+        Path::new(&self.path)
+            .join(format!("{}.bson", id))
+            .to_str()
+            .map(|s| s.to_string())
+    }
  
     /// Adds an SSTable to this level.
-    pub fn add_sstable(&mut self, _table: &SSTable) -> Result<()> {
-        unimplemented!();
+    pub fn add_sstable(&mut self, table: &SSTable) -> Result<()> {
+        // Get the path to the table...
+        let table_path = self.format_table_path(&table.meta.table_id)
+            .ok_or(anyhow!("Couldn't format table path"))?;
+
+        // Create the handle...
+        let handle = SSTableHandle::new(
+            table.meta.clone(), 
+            table_path,
+        );
+
+        // Write the table to disk...
+        handle.write(table)?;
+        
+        // Add the handle...
+        self.tables.push(handle);
+        Ok(())
     }
 
-    /// Removes an SSTable from this level.
-    pub fn remove_sstable(&mut self, _id: &ObjectId) -> Result<()> {
-        unimplemented!();
+    fn format_meta_path(&self) -> Option<String> {
+        Path::new(&self.path)
+            .join(LEVEL_META_FILE)
+            .to_str()
+            .map(|s| s.to_string())
     }
 
     /// Reads the metadata for this level from disk.
-    pub fn read_meta(&self) -> Result<LevelMeta> {
-        unimplemented!();
+    pub fn load_meta(&mut self) -> Result<()> {
+        // Get the path to the meta file...
+        let p = self.format_meta_path()
+            .ok_or(anyhow!("Couldn't format meta path"))?;
+
+        // Read in the metadata...
+        let file = std::fs::File::open(p)?;
+        let reader = std::io::BufReader::new(file);
+        let meta: LevelMeta = bson::from_reader(reader)?;
+
+        // Set the metadata...
+        self.meta = meta;
+        Ok(())
     }
 
     /// Writes the metadata for this level to disk.
     pub fn write_meta(&self) -> Result<()> {
-        unimplemented!();
+        // Get the path to the meta file...
+        let p = self.format_meta_path()
+            .ok_or(anyhow!("Couldn't format meta path"))?;
+
+        // Write the metadata...
+        let file = std::fs::File::create(p)?;
+        let writer = std::io::BufWriter::new(file);
+        let doc = bson::to_document(&self.meta)?;
+        doc.to_writer(writer)?;
+        Ok(())
+    }
+
+    /// Checks if this level is full based on the number of tables.
+    pub fn is_full(&self) -> bool {
+        self.tables.len() >= self.max_tables
     }
 
     /// Gets a record from this level, if it exists.
@@ -114,6 +176,12 @@ impl Level {
 
         // Then iterate through the SSTables...
         for th in &self.tables {
+            // Check if the table is active...
+            if !th.active {
+                // The table isn't active, skip it...
+                continue;
+            }
+
             // Check if the key is in range...
             if !th.meta.key_in_range(key) {
                 // The key isn't in range, skip this table...
