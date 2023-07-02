@@ -1,4 +1,5 @@
-use bson::{DateTime};
+use std::path::Path;
+use bson::DateTime;
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
@@ -81,7 +82,7 @@ impl SSTableHandle {
 }
 
 /// An SSTable read from disk.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SSTable {
     /// The metadata for this SSTable.
     pub meta: SSTableMeta,
@@ -235,13 +236,20 @@ impl SSTable {
     /// 
     /// # Arguments
     /// 
-    /// * `path` - The path to the directory where this SSTable is stored.
+    /// * `parent_path` - The path to the directory where this SSTable is stored.
     /// * `write` - A flag indicating whether the SSTable should be opened
     /// 
     /// # Returns
     /// 
     /// An `SSTableHandle` for working with this SSTable on disk.
-    pub fn get_handle(&self, path: &str, write: bool) -> Result<SSTableHandle> {
+    pub fn get_handle(&self, parent_path: &str, write: bool) -> Result<SSTableHandle> {
+        // Format the path...
+        let tids = self.meta.table_id.to_string();
+        let path = Path::new(parent_path);
+        let path = path.join(tids);
+        let path = path.to_str()
+            .ok_or(anyhow!("Failed to create sstable path"))?;
+
         // Create the handle...
         let handle = SSTableHandle::new(
             self.meta.clone(), 
@@ -287,6 +295,61 @@ impl SSTableMeta {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bson::doc;
+    use bson::oid::ObjectId;
+    use anyhow::Result;
+
+    #[test]
+    fn create_and_read_sstable() -> Result<()> {
+        // Create an sstable...
+        let records = vec![
+            Record {
+                key: ObjectId::new(),
+                value: Value::Data(doc! {
+                    "msg": "Hello, World",
+                    "num": 42,
+                }),
+            },
+            Record {
+                key: ObjectId::new(),
+                value: Value::Data(doc! {
+                    "msg": "What's up",
+                    "num": 0,
+                }),
+            },
+            Record {
+                key: ObjectId::new(),
+                value: Value::Tombstone,
+            },
+        ];
+        let sstable = SSTable::new(records).unwrap();
+        assert_eq!(sstable.records.len(), 3, "Expected 2 records");
+
+        // Create a handle for the sstable...
+        let handle = sstable.get_handle("/tmp", false)?;
+
+        // Write the sstable to disk...
+        handle.write(&sstable)?;
+
+        // Read in the sstable...
+        let sstable2 = handle.read()?;
+
+        // Check that the sstable is the same...
+        assert_eq!(sstable, sstable2, "Expected sstables to be equal");
+
+        // Check that the table is stored where expected...
+        let path = Path::new("/tmp")
+            .join(handle.meta.table_id.to_string());
+        assert!(path.exists(), "Expected path to exist");
+
+        // Delete the sstable...
+        handle.delete()?;
+
+        // Check that the table is no longer stored where expected...
+        assert!(!path.exists(), "Expected path to not exist");
+
+        Ok(())
+    }
 
     #[test]
     fn sstablemeta_key_in_range() {
@@ -340,6 +403,5 @@ mod test {
         assert!(meta.key_in_range(&oid3), "Expected oid3 to be in range");
     }
 }
-
 
 
