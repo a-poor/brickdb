@@ -38,6 +38,8 @@ pub struct Level {
 impl Level {
     /// Create a new LSM Tree Level.
     pub fn new(path: &str, level_number: usize, tables: Vec<SSTableHandle>) -> Result<Self> {
+        /// TODO - Use the id to format the path...
+        
         let bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
             BLOOM_FILTER_SIZE,

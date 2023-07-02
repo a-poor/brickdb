@@ -11,7 +11,7 @@ use crate::storage::conf::*;
 /// The in-memory buffer for an LSM Tree.
 /// 
 /// This buffer is comprised of a red-black tree of records, sorted by key.
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct MemTable {
     /// The records in the MemTable.
     pub records: BTreeMap<ObjectId, Value<Document>>,
@@ -54,8 +54,8 @@ impl MemTable {
             .cloned()
     }
 
-    /// Flushes the contents of the MemTable to disk, returning an SSTable.
-    pub fn flush(&mut self) -> Result<SSTable> {
+    /// Flushes the contents of the MemTable to an SSTable.
+    pub fn flush(&self) -> Result<SSTable> {
         // Create a vector of records from the BTreeMap...
         let records: Vec<_> = self.records
             .iter()
@@ -90,6 +90,10 @@ impl MemTable {
             meta,
             records,
         })
+    }
+
+    pub fn clear(&mut self) {
+        self.records.clear();
     }
 
     /// Check the size of the MemTable.

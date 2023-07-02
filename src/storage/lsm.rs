@@ -1,6 +1,8 @@
+use std::any;
+
 use bson::Document;
 use bson::oid::ObjectId;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::storage::record::*;
 use crate::storage::level::*;
@@ -19,6 +21,13 @@ pub struct LSMTree {
     /// The in-memory buffer for this LSM Tree.
     pub memtable: MemTable,
 
+    /// A memtable that is frozen and in the process of being flushed 
+    /// to disk. This will keep the data accessible while it is being
+    /// flushed but will not allow any new data to be added.
+    /// 
+    /// If `None`, it isn't in the process of being flushed.
+    pub frozen_memtable: Option<MemTable>,
+
     /// The on-disk levels for this LSM Tree.
     pub levels: Vec<Level>,
 
@@ -33,6 +42,7 @@ impl LSMTree {
             id: ObjectId::new(),
             name: name.to_string(),
             memtable: MemTable::new(),
+            frozen_memtable: None,
             levels: vec![],
             path: path.to_string(),
         }
@@ -71,6 +81,16 @@ impl LSMTree {
             };
         }
 
+        // Next try to get it from the frozen memtable...
+        if let Some(frozen) = &self.frozen_memtable {
+            if let Some(value) = frozen.get(key) {
+                return match value {
+                    Value::Data(doc) => Ok(Some(doc)),
+                    Value::Tombstone => Ok(None),
+                };
+            }
+        }
+
         // Otherwise try to get it from disk...
         match self.get_from_disk(key)? {
             Some(rec) => match rec.value {
@@ -79,6 +99,85 @@ impl LSMTree {
             },
             None => Ok(None),
         }
+    }
+
+    /// Move through the levels of the LSM Tree (including the memtable)
+    /// and compact them, if necessary.
+    pub fn compact(&mut self) -> Result<()> {
+        // Is the memtable full?
+        if !self.memtable.is_full() {
+            // Not full, stop here...
+            return Ok(());
+        }
+
+        // Compact the memtable...
+        self.compact_memtable()?;
+
+        // Iterate through the levels...
+        // TODO - Refactor this to a while loop. As number of levels may change during compaction...
+        for i in 0..self.levels.len() {
+            // Get a mutable reference to the level...
+            if let Some(level) = self.levels.get_mut(i) {
+                // Is the level full?
+                if !level.is_full() {
+                    // Not full, stop here...
+                    return Ok(());
+                }
+
+                // Compact the level...
+                let n = i + 1; // The level number is 1-indexed...
+                self.compact_level(n)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn compact_memtable(&mut self) -> Result<()> {
+        // Ensure there isn't already a frozen memtable...
+        if self.frozen_memtable.is_some() {
+            return Err(anyhow!("Memtable already frozen!"));
+        }
+
+        // Freeze the memtable...
+        self.frozen_memtable = Some(self.memtable.clone()); // TODO - Get rid of clone
+        self.memtable = MemTable::new();
+
+        // Flush the frozen memtable to an SSTable...
+        let sstable = self.frozen_memtable
+            .as_ref()
+            .ok_or(anyhow!("Failed to get frozen memtable"))?
+            .flush()?;
+
+        // Does a new level need to be created before adding the sstable?
+        if self.levels.len() == 0 {
+            self.add_level()?;
+        }
+
+        // Add the ss-table to the first level...
+        // (There should now be at least one level) 
+        self.levels[0].add_sstable(&sstable)?;
+
+        // Remove the frozen memtable...
+        self.frozen_memtable = None;
+        Ok(())
+    }
+
+    fn compact_level(&mut self, n: usize) -> Result<()> {
+        unimplemented!();
+    }
+
+    pub fn add_level(&mut self) -> Result<()> {
+        // Create a new level...
+        let level = Level::new(
+            self.path.as_str(), 
+            self.levels.len() + 1, 
+            vec![]
+        )?;
+
+        // Add the level to the LSM Tree...
+        self.levels.push(level);
+
+        Ok(())
     }
 }
 
