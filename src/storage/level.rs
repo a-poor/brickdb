@@ -68,7 +68,14 @@ impl Level {
             std::fs::create_dir_all(&path)?;
         
             // Create the meta file...
-
+            let meta_path = Path::new(&path)
+                .join(LEVEL_META_FILE);
+            
+            // Write the metadata as BSON...
+            let file = std::fs::File::create(meta_path)?;
+            let writer = std::io::BufWriter::new(file);
+            let doc = bson::to_document(&meta)?;
+            doc.to_writer(writer)?;
         }
 
         // Create the bloom filter...
@@ -264,7 +271,7 @@ impl Level {
     }
 
     pub fn clear(&mut self) -> Result<()> {
-        unimplemented!();
+        todo!();
     }
 
     /// Updates the table ids in the level's metadata.
@@ -277,7 +284,7 @@ impl Level {
 }
 
 /// The metadata for an LSM Tree Level.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct LevelMeta {
     /// A unique identifier for this level.
     pub id: ObjectId,
@@ -320,5 +327,74 @@ impl LevelMeta {
 
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+    use anyhow::Result;
+
+    #[test]
+    fn create_level() -> Result<()> {
+        // Create a new level with no tables...
+        let level = Level::new(
+            "/tmp", 
+            1, 
+            vec![], 
+            true,
+        )?;
+
+        // Check if the directory exists at (/tmp/<level_id>)...
+        let path = Path::new("/tmp")
+            .join(level.meta.id.to_string());
+        assert!(path.exists());
+        
+        // And check if it's a directory...
+        assert!(path.is_dir());
+
+        // Now check if the metadata file exists...
+        let meta_path = path.join(LEVEL_META_FILE);
+        assert!(meta_path.exists());
+
+        // And check if it's a file...
+        assert!(meta_path.is_file());
+
+        // Read the metadata back in and compare it to the level's metadata...
+        let file = std::fs::File::open(meta_path)?;
+        let reader = std::io::BufReader::new(file);
+        let meta: LevelMeta = bson::from_reader(reader)?;
+        assert_eq!(meta, level.meta);
+
+        // (Clean up) Remove the directory...
+        std::fs::remove_dir_all(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn add_sstable() -> Result<()> {
+        todo!();
+    }
+
+    #[test]
+    fn compact_tables() -> Result<()> {
+        todo!();
+    }
+
+    #[test]
+    fn update_table_ids() -> Result<()> {
+        todo!();
+    }
+
+    #[test]
+    fn doesnt_contain() -> Result<()> {
+        todo!();
+    }
+
+    #[test]
+    fn get() -> Result<()> {
+        todo!();
+    }
+
+    #[test]
+    fn is_full() -> Result<()> {
+        todo!();
+    }
+}
 
