@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::collections::HashSet;
 use bson::DateTime;
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
@@ -152,6 +153,8 @@ impl Level {
         Ok(())
     }
 
+    /// Returns the path to the metadata file for this level based
+    /// on the level directory path and the metadata file name.
     fn format_meta_path(&self) -> Option<String> {
         Path::new(&self.path)
             .join(LEVEL_META_FILE)
@@ -245,12 +248,18 @@ impl Level {
     /// # Returns
     /// 
     /// Returns a reference the new SSTable.
-    pub fn compact_tables(&self) -> Result<SSTable> {
+    pub fn compact_tables(&self) -> Result<CompactResult> {
         // Create a place to store the merged SSTable...
         let mut res: Option<SSTable> = None;
 
+        // Create a vector to store the old table ids...
+        let mut old_table_ids = vec![];
+
         // Iterate through the level's sstables...
         for table in self.tables.iter() {
+            // Add the table id to the old table ids...
+            old_table_ids.push(table.meta.table_id);
+
             // Read in the table...
             let sstable = table.read()?;
             if let Some(prev) = res {
@@ -265,22 +274,104 @@ impl Level {
 
         // Return the merged SSTable.
         match res {
-            Some(table) => Ok(table),
+            Some(new_table) => Ok(CompactResult { 
+                new_table, 
+                old_table_ids, 
+            }),
             None => Err(anyhow!("No SSTable found")),
         }
     }
 
-    pub fn clear(&mut self) -> Result<()> {
-        todo!();
+    /// Clears the given tables from this level.
+    /// 
+    /// Clears the given tables from this level object, removes
+    /// cleared tables from disk, and updates this level's metadata.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `ids` - The ids of the tables to be cleared.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a `Result` containing either `()` if successful or 
+    /// an `Error` if not.
+    pub fn clear(&mut self, ids: &[ObjectId]) -> Result<()> {
+        // Create a vector to store the remaining tables...
+        let mut remaining = vec![];
+
+        // Convert the ids to a set...
+        let ids: HashSet<_> = ids.iter().collect();
+
+        // Iterate through the tables...
+        for table in self.tables.iter() {
+            // Check if the table is in the ids...
+            if ids.contains(&table.meta.table_id) {
+                // The table is in the ids, so delete it...
+                table.delete()?;
+            } else {
+                // The table isn't in the ids, so keep it...
+                remaining.push(table.clone());
+            }
+        }
+
+        // Set the remaining tables...
+        self.tables = remaining;
+
+        // Update the metadata...
+        self.update_table_ids()?;
+
+        // Success!
+        Ok(())
+    }
+
+    /// Removes all tables from this level.
+    /// 
+    /// Clears tables from this level object, removes cleared 
+    /// tables from disk, and updates this level's metadata.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a `Result` containing either `()` if successful or
+    /// an `Error` if not.
+    pub fn clear_all(&mut self) -> Result<()> {
+        // Get the tables...
+        let tables = self.tables.clone();
+
+        // Set the tables to an empty vector...
+        self.tables = vec![];
+
+        // Iterate through deleting the old tables...
+        for table in tables {
+            // Delete the table...
+            table.delete()?;
+        }
+        Ok(())
     }
 
     /// Updates the table ids in the level's metadata.
-    pub fn update_table_ids(&mut self) {
+    pub fn update_table_ids(&mut self) -> Result<()> {
         self.meta.table_ids = self.tables
             .iter()
             .map(|t| t.meta.table_id)
             .collect();
+
+        // Update the number of tables...
+        self.meta.num_tables = self.tables.len();
+
+        // Update the bloom filter...
+        self.bloom_filter = self.get_bloom_filter()?;
+
+        // Update the metadata file on disk...
+        self.write_meta()?;
+
+        // Success!
+        Ok(())
     }
+}
+
+pub struct CompactResult {
+    pub new_table: SSTable,
+    pub old_table_ids: Vec<ObjectId>,
 }
 
 /// The metadata for an LSM Tree Level.

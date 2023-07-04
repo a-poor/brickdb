@@ -12,6 +12,7 @@ use crate::storage::conf::*;
 
 /// A handle that stores the location of an SSTable on disk as 
 /// well as some metadata.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SSTableHandle {
     /// The metadata for this SSTable.
     pub meta: SSTableMeta,

@@ -188,8 +188,7 @@ impl LSMTree {
         
         // Get the sstable...
         // Wrapped in a scope to ensure the mutable borrow of self.levels is dropped
-
-        let sstable = {
+        let CompactResult { new_table, old_table_ids } = {
             let level = self.levels
                 .get_mut(i)
                 .ok_or(anyhow!("Level {} not found", n))?;
@@ -211,10 +210,10 @@ impl LSMTree {
 
         // Add the ss-table to the next level...
         // (There should now be at least n levels)
-        self.levels[i+1].add_sstable(&sstable)?;
+        self.levels[i+1].add_sstable(&new_table)?;
         
         // Clear the old level...
-        self.levels[i].clear()?;
+        self.levels[i].clear(&old_table_ids)?;
         Ok(())
     }
 
