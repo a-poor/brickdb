@@ -37,23 +37,52 @@ pub struct Level {
 
 impl Level {
     /// Create a new LSM Tree Level.
-    pub fn new(path: &str, level_number: usize, tables: Vec<SSTableHandle>) -> Result<Self> {
-        /// TODO - Use the id to format the path...
+    /// 
+    /// # Arguments
+    /// 
+    /// * `parent_path` - The path to the parent directory for this level.
+    /// * `level_number` - The level number (1 is the first on-disk level).
+    /// * `tables` - The SSTables in this level.
+    /// * `to_disk` - Whether to create the directory for this level.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a `Result` containing either the new level or an `Error`.
+    pub fn new(parent_path: &str, level_number: usize, tables: Vec<SSTableHandle>, to_disk: bool) -> Result<Self> {
+        // Create the metadata...
+        let meta = LevelMeta::new(
+            level_number, 
+            tables.len(), 
+            tables.iter().map(|t| t.meta.table_id).collect(),
+        );
         
+        // Format the path...
+        let path = Path::new(parent_path);
+        let path = path.join(meta.id.to_string());
+        let path = path.to_str()
+            .ok_or(anyhow!("Couldn't format level path"))?
+            .to_string();
+
+        if to_disk {
+            // Create the directory...
+            std::fs::create_dir_all(&path)?;
+        
+            // Create the meta file...
+
+        }
+
+        // Create the bloom filter...
         let bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
             BLOOM_FILTER_SIZE,
         );
+
+        // Create the level...
         Ok(Level {
-            meta: LevelMeta {
-                id: ObjectId::new(),
-                created_at: DateTime::now(),
-                level: level_number,
-                num_tables: tables.len(),
-            },
+            meta,
             tables,
             bloom_filter,
-            path: path.to_string(),
+            path,
             max_tables: MAX_TABLES_PER_LEVEL,
             records_per_table: MEMTABLE_MAX_SIZE * level_number,
         })
@@ -233,6 +262,18 @@ impl Level {
             None => Err(anyhow!("No SSTable found")),
         }
     }
+
+    pub fn clear(&mut self) -> Result<()> {
+        unimplemented!();
+    }
+
+    /// Updates the table ids in the level's metadata.
+    pub fn update_table_ids(&mut self) {
+        self.meta.table_ids = self.tables
+            .iter()
+            .map(|t| t.meta.table_id)
+            .collect();
+    }
 }
 
 /// The metadata for an LSM Tree Level.
@@ -249,6 +290,32 @@ pub struct LevelMeta {
 
     /// The number of SSTables in this level.
     pub num_tables: usize,
+
+    /// The ids of the tables in this level.
+    pub table_ids: Vec<ObjectId>,
+}
+
+impl LevelMeta {
+    /// Creates a new LSM Tree Level Metadata.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `level` - The level number (1 is the first on-disk level).
+    /// * `num_tables` - The number of SSTables in this level.
+    /// * `table_ids` - The ids of the tables in this level.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a `Result` containing either the new metadata or an `Error`.
+    pub fn new(level: usize, num_tables: usize, table_ids: Vec<ObjectId>) -> Self {
+        LevelMeta {
+            id: ObjectId::new(),
+            created_at: DateTime::now(),
+            level,
+            num_tables,
+            table_ids,
+        }
+    }
 }
 
 
