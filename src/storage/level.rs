@@ -458,34 +458,39 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn add_sstable() -> Result<()> {
-        todo!();
-    }
+    // #[test]
+    // fn get_bloom_filter() -> Result<()> {
+    //     todo!();
+    // }
+    
+    // #[test]
+    // fn add_sstable() -> Result<()> {
+    //     todo!();
+    // }
 
-    #[test]
-    fn compact_tables() -> Result<()> {
-        todo!();
-    }
+    // #[test]
+    // fn compact_tables() -> Result<()> {
+    //     todo!();
+    // }
 
-    #[test]
-    fn update_table_ids() -> Result<()> {
-        todo!();
-    }
+    // #[test]
+    // fn update_table_ids() -> Result<()> {
+    //     todo!();
+    // }
 
-    #[test]
-    fn doesnt_contain() -> Result<()> {
-        todo!();
-    }
+    // #[test]
+    // fn doesnt_contain() -> Result<()> {
+    //     todo!();
+    // }
 
-    #[test]
-    fn get() -> Result<()> {
-        todo!();
-    }
+    // #[test]
+    // fn get() -> Result<()> {
+    //     todo!();
+    // }
 
-    #[test]
-    fn is_full() -> Result<()> {
-        todo!();
-    }
+    // #[test]
+    // fn is_full() -> Result<()> {
+    //     todo!();
+    // }
 }
 

@@ -20,4 +20,5 @@ A small basic proof-of-concept database written in Rust. I wouldn't recommend us
     - Maybe they don't need to but need to be able to mark which table-ids are being compacted. So compaction can start on level 1 (say) and while it's happening, they can still be read from, until the new level-2 table is ready, at which point the level-1 tables can be removed. But since a new level one table might have been added (probably _shouldn't_ have been but _could_ have been), the compaction process should remember which tables it's including and not just say _all tables in level 1_.
 - [ ] Compress data written to disk with snappy compression? (try [snap](https://stackoverflow.com/questions/40740752/how-to-lay-out-b-tree-data-on-disk))
 - [ ] Update `todo!()`s in tests
+- [ ] Add the ability to encrypt data on disk (`aes` with [ring](https://docs.rs/ring/latest/ring)?)
 
