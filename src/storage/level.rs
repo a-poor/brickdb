@@ -150,6 +150,9 @@ impl Level {
         
         // Add the handle...
         self.tables.push(handle);
+
+        // Update the metadata...
+        self.update_table_ids()?;
         Ok(())
     }
 
@@ -420,6 +423,7 @@ impl LevelMeta {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bson::doc;
     use anyhow::Result;
 
     #[test]
@@ -462,9 +466,111 @@ mod test {
     // fn get_bloom_filter() -> Result<()> {
     //     todo!();
     // }
-    
+
     // #[test]
-    // fn add_sstable() -> Result<()> {
+    // fn doesnt_contain() -> Result<()> {
+    //     todo!();
+    // }
+    
+    #[test]
+    fn add_sstable() -> Result<()> {
+        // Create a new level with no tables...
+        let mut level = Level::new(
+            "/tmp", 
+            1, 
+            vec![], 
+            true,
+        )?;
+
+        // Create a new SSTable...
+        let table = SSTable::new(
+            vec![
+                Record::new_data(doc! { "name": "John" }),
+                Record::new_data(doc! { "name": "Jane" }),
+            ],
+        )?;
+
+        // Add the SSTable to the level...
+        level.add_sstable(&table)?;
+        
+        // Check if the id is in the level's metadata...
+        assert!(level.meta.table_ids.contains(&table.meta.table_id));
+
+        // Read the table back in.
+        // Format the path...
+        let table_path = level.format_table_path(&table.meta.table_id)
+            .ok_or(anyhow!("Couldn't format table path"))?;
+        
+        // Read in the bytes...
+        let bytes = std::fs::read(table_path)?;
+        
+        // Deserialize the table as an SSTable...
+        let table: SSTable = bson::from_slice(&bytes)?;
+
+        // Check if the table is the same as the original...
+        assert_eq!(table, table);
+
+        // (Clean up) Remove the directory...
+        std::fs::remove_dir_all(
+            Path::new("/tmp")
+                .join(level.meta.id.to_string())
+            )?;
+        Ok(())
+    }
+
+    // #[test]
+    // fn load_meta() -> Result<()> {
+    //     todo!();
+    // }
+
+    // #[test]
+    // fn write_meta() -> Result<()> {
+    //     todo!();
+    // }
+
+    // #[test]
+    // fn compact_tables() -> Result<()> {
+    //     todo!();
+    // }
+
+    #[test]
+    fn is_full() -> Result<()> {
+        // Create a new level with no tables...
+        let mut level = Level::new(
+            "/tmp", 
+            1, 
+            vec![], 
+            true,
+        )?;
+
+        // Iterate through the max number of tables, adding handles to the level,
+        // checking if the level is full after each iteration. It should only be
+        // full on the last iteration...
+        for i in 0..MAX_TABLES_PER_LEVEL {
+            // Create a new SSTable...
+            let table = SSTable::new(
+                vec![
+                    Record::new_tombstone(),
+                ],
+            )?;
+
+            // Add the SSTable to the level...
+            level.add_sstable(&table)?;
+
+            // Check if the level is full...
+            if i == MAX_TABLES_PER_LEVEL - 1 {
+                assert!(level.is_full());
+            } else {
+                assert!(!level.is_full());
+            }
+        }
+
+        // Done!
+        Ok(())
+    }
+
+    // #[test]
+    // fn get() -> Result<()> {
     //     todo!();
     // }
 
@@ -474,22 +580,17 @@ mod test {
     // }
 
     // #[test]
+    // fn clear() -> Result<()> {
+    //     todo!();
+    // }
+
+    // #[test]
+    // fn clear_all() -> Result<()> {
+    //     todo!();
+    // }
+
+    // #[test]
     // fn update_table_ids() -> Result<()> {
-    //     todo!();
-    // }
-
-    // #[test]
-    // fn doesnt_contain() -> Result<()> {
-    //     todo!();
-    // }
-
-    // #[test]
-    // fn get() -> Result<()> {
-    //     todo!();
-    // }
-
-    // #[test]
-    // fn is_full() -> Result<()> {
     //     todo!();
     // }
 }

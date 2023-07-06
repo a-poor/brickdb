@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use bson::Document;
+use bson::{Document, doc};
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,28 @@ pub struct Record {
 
     /// The record's value.
     pub value: Value<Document>,
+}
+
+impl Record {
+    /// Creates a new record with the given key and value.
+    pub fn new(value: Value<Document>) -> Self {
+        let key = ObjectId::new();
+        Self { key, value }
+    }
+
+    pub fn new_tombstone() -> Self {
+        Self::new(Value::Tombstone)
+    }
+
+    pub fn new_data(doc: Document) -> Self {
+        Self::new(Value::Data(doc))
+    }
+}
+
+impl Default for Record {
+    fn default() -> Self {
+        Self::new_data(doc!())
+    }
 }
 
 impl PartialOrd for Record {
