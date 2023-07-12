@@ -580,6 +580,12 @@ mod test {
         // Check that the level doesn't _not_ contain the key now...
         assert!(!level.doesnt_contain(&key));
 
+        // Clean up...
+        std::fs::remove_dir_all(
+            Path::new("/tmp")
+                .join(level.meta.id.to_string())
+            )?;
+
         // Done!
         Ok(())
     }
@@ -678,6 +684,12 @@ mod test {
                 assert!(!level.is_full());
             }
         }
+
+        // (Clean up) Remove the directory...
+        std::fs::remove_dir_all(
+            Path::new("/tmp")
+                .join(level.meta.id.to_string())
+            )?;
 
         // Done!
         Ok(())
