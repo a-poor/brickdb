@@ -47,7 +47,7 @@ impl SSTableHandle {
     pub fn read(&self) -> Result<SSTable> {
         let file = std::fs::File::open(&self.path)?;
         let reader = std::io::BufReader::new(file);
-        let sstable = bson::from_reader(reader)?;
+        let sstable: SSTable = bson::from_reader(reader)?;
         Ok(sstable)
     }
 
@@ -70,15 +70,8 @@ impl SSTableHandle {
 
     /// Returns a bloom filter for this SSTable.
     pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
-        let mut bf = BloomFilter::with_rate(
-            BLOOM_FILTER_ERROR_RATE, 
-            BLOOM_FILTER_SIZE,
-        );
-        let sstable = self.read()?;
-        for record in sstable.records {
-            bf.insert(&record.key);
-        }
-        Ok(bf)
+        self.read()?
+            .get_bloom_filter()
     }
 }
 
@@ -265,6 +258,45 @@ impl SSTable {
         // Return the handle...
         Ok(handle)
     }
+
+    /// Returns a bloom filter for this SSTable.
+    pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
+        let mut bf = BloomFilter::with_rate(
+            BLOOM_FILTER_ERROR_RATE, 
+            BLOOM_FILTER_SIZE,
+        );
+        for record in self.records.iter() {
+            bf.insert(&record.key);
+        }
+        Ok(bf)
+    }
+}
+
+pub struct SSTableRecordIterator<'a> {
+    sstable: &'a SSTable,
+    index: usize,
+}
+
+impl<'a> IntoIterator for &'a SSTable {
+    type Item = &'a Record;
+    type IntoIter = SSTableRecordIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SSTableRecordIterator {
+            sstable: self,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for SSTableRecordIterator<'a> {
+    type Item = &'a Record;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let record = self.sstable.records.get(self.index)?;
+        self.index += 1;
+        Some(record)
+    }
 }
 
 /// Metadata associated with an SSTable on disk.
@@ -323,24 +355,42 @@ mod test {
                 value: Value::Tombstone,
             },
         ];
-        let sstable = SSTable::new(records).unwrap();
+        let sstable = SSTable::new(records)?;
         assert_eq!(sstable.records.len(), 3, "Expected 2 records");
 
+        // Root path...
+        let parent_path = "/tmp";
+
         // Create a handle for the sstable...
-        let handle = sstable.get_handle("/tmp", false)?;
+        let handle = sstable.get_handle(parent_path, false)?;
+
+        // Get the path...
+        let path = Path::new(parent_path)
+            .join(handle.meta.table_id.to_string());
+
+        // Check that the path doesn't exist yet...
+        assert!(!path.exists(), "Expected path to not exist");
 
         // Write the sstable to disk...
         handle.write(&sstable)?;
 
+        // Check that the path exists...
+        assert!(path.exists(), "Expected path to exist");
+
         // Read in the sstable...
         let sstable2 = handle.read()?;
+
+        // Check that the record counts are the same...
+        assert_eq!(
+            sstable.records.len(), 
+            sstable2.records.len(), 
+            "Expected record counts to be equal",
+        );
 
         // Check that the sstable is the same...
         assert_eq!(sstable, sstable2, "Expected sstables to be equal");
 
         // Check that the table is stored where expected...
-        let path = Path::new("/tmp")
-            .join(handle.meta.table_id.to_string());
         assert!(path.exists(), "Expected path to exist");
 
         // Delete the sstable...
@@ -402,6 +452,55 @@ mod test {
         assert!(!meta.key_in_range(&oid1), "Expected oid1 to be out of range");
         assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
         assert!(meta.key_in_range(&oid3), "Expected oid3 to be in range");
+    }
+
+    #[test]
+    fn get_bloom_filter() -> Result<()> {
+        // Create an ID that _will_ be in the table...
+        let id_in = ObjectId::new();
+
+        // Create an ID that _won't_ be in the table...
+        let id_out = ObjectId::new();
+
+        // Create an SSTable...
+        let sstable = SSTable::new(vec![
+            Record {
+                key: id_in,
+                value: Value::Data(doc! {
+                    "msg": "Hello, World",
+                    "num": 42,
+                }),
+            },
+            Record {
+                key: ObjectId::new(),
+                value: Value::Data(doc! {
+                    "msg": "What's up",
+                    "num": 0,
+                }),
+            },
+            Record {
+                key: ObjectId::new(),
+                value: Value::Tombstone,
+            },
+        ])?;
+
+        // Get the bloom filter...
+        let bf = sstable.get_bloom_filter()?;
+
+        // Check that `id_in` _is_ in the bloom filter...
+        assert!(
+            bf.contains(&id_in), 
+            "Expected id_in to be in bloom filter",
+        );
+
+        // Check that `id_out` _is not_ in the bloom filter...
+        assert!(
+            !bf.contains(&id_out), 
+            "Expected id_out to not be in bloom filter",
+        );
+
+        // Success!
+        Ok(())
     }
 }
 

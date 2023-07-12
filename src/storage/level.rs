@@ -4,7 +4,7 @@ use bson::DateTime;
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
-use bloom::{BloomFilter, Unionable, ASMS};
+use bloom::{BloomFilter, ASMS};
 
 use crate::storage::conf::*;
 use crate::storage::sstable::*;
@@ -100,14 +100,25 @@ impl Level {
     /// 
     /// Note this *doesn't* change the `self.bloom_filter`.
     pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
+        // Create a new, empty bloom filter...
         let mut bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
             BLOOM_FILTER_SIZE,
         );
-        for table in &self.tables {
-            let table_bloom_filter = table.get_bloom_filter()?;
-            bloom_filter.union(&table_bloom_filter);
+
+        // Iterate over the table handles (in reverse order)...
+        for table in self.tables.iter().rev() {
+            // Read in the table...
+            let sstable = table.read()?;
+
+            // Iterate over the table's records...
+            for record in sstable.records.iter() {
+                // Insert the record's key into the bloom filter...
+                bloom_filter.insert(&record.key);
+            }
         }
+        
+        // Return it!
         Ok(bloom_filter)
     }
 
@@ -462,15 +473,118 @@ mod test {
         Ok(())
     }
 
-    // #[test]
-    // fn get_bloom_filter() -> Result<()> {
-    //     todo!();
-    // }
+    #[test]
+    fn get_bloom_filter() -> Result<()> {
+        // Create a new level with no tables...
+        let mut level = Level::new(
+            "/tmp", 
+            1, 
+            vec![], 
+            true,
+        )?;
 
-    // #[test]
-    // fn doesnt_contain() -> Result<()> {
-    //     todo!();
-    // }
+        // Create an ID to check for...
+        let id = ObjectId::new();
+
+        // Create a new SSTable...
+        let table = SSTable::new(
+            vec![
+                Record {
+                    key: id.clone(),
+                    value: Value::Data(doc! { 
+                        "name": "John", 
+                    }),
+                },
+                Record::new_data(doc! { "name": "Jane" }),
+            ],
+        )?;
+
+        // Add the SSTable to the level...
+        level.add_sstable(&table)?;
+
+        // Get the bloom filter...
+        let bloom_filter = level.get_bloom_filter()?;
+
+        // Check if the bloom filter contains the id...
+        assert!(bloom_filter.contains(&id));
+
+        // Check if another id is in the bloom filter...
+        assert!(!bloom_filter.contains(&ObjectId::new()));
+
+        // (Clean up) Remove the directory...
+        std::fs::remove_dir_all(
+            Path::new("/tmp")
+                .join(level.meta.id.to_string())
+            )?;
+
+        // Success!
+        Ok(())
+    }
+
+    #[test]
+    fn doesnt_contain() -> Result<()> {
+        // Create a new level with no tables...
+        let mut level = Level::new(
+            "/tmp", 
+            1, 
+            vec![], 
+            true,
+        )?;
+        println!("level_id = {}", level.meta.id);
+
+        // Create a new key...
+        let key = ObjectId::new();
+        println!("key = {}", key);
+
+        // Check if the level doesn't contain the key...
+        assert!(level.doesnt_contain(&key));
+
+        // Add a table to the level with one record with that key...
+        let rec = Record { 
+            key, 
+            value: Value::Data(doc! { 
+                "msg": "world", 
+            })
+        };
+        let table = SSTable::new(
+            vec![rec.clone()],
+        )?;
+        println!("table_id = {:?}", table.meta.table_id);
+        println!("record key = {}", rec.key);
+
+        // Get the table's bloom filter...
+        let table_bloom_filter = table.get_bloom_filter()?;
+
+        // Check that the bloom filter _might_ contain the key...
+        assert!(table_bloom_filter.contains(&key));
+
+        // Check if the level doesn't contain the key...
+        assert!(level.doesnt_contain(&key));
+
+        // Add the table to the level...
+        level.add_sstable(&table)?;
+
+        let table_bloom_filter = table.get_bloom_filter()?;
+        assert!(table_bloom_filter.contains(&key));
+
+        // Get the value from the level...
+        let val = level.get(&key)?;
+        println!("val = {:?}", val);
+        assert!(val.is_some());
+
+        // Check that the Record is a document with the key "msg"...
+        let val = val.unwrap();
+        assert_eq!(val.key, key);
+        assert_eq!(val.value, Value::Data(doc! { "msg": "world" }));
+
+        // Check that the level doesn't _not_ contain the key now...
+        assert!(!level.doesnt_contain(&key));
+
+        // Done!
+        Ok(())
+    }
+
+    
     
     #[test]
     fn add_sstable() -> Result<()> {

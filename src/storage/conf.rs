@@ -28,7 +28,7 @@ pub const BLOOM_FILTER_SIZE: u32 = 1000;
 /// 
 /// Note: This value is fixed temporarily, for simplicity.
 /// The goal is to remove this const and make it configurable.
-pub const BLOOM_FILTER_ERROR_RATE: f32 = 0.01;
+pub const BLOOM_FILTER_ERROR_RATE: f32 = 0.001;
 
 /// The name of the metadata file for a level.
 /// 
