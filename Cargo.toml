@@ -19,8 +19,9 @@ name = "brickdb_server"
 path = "src/bin/server.rs"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-bson = { version = "2.6.0", features = ["serde_with"] }
+serde = { version = "1", features = ["derive"] }
+bson = { version = "2", features = ["serde_with"] }
 bloom = "0.3.2"
 anyhow = "1.0.71"
 snap = "1.1.0"
+tokio = { version = "1", features = ["full"] }

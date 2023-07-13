@@ -57,10 +57,10 @@ impl LSMTree {
     }
     
     /// Get a value from the LSM Tree's on-disk levels.
-    fn get_from_disk(&self, key: &ObjectId) -> Result<Option<Record>> {
+    async fn get_from_disk(&self, key: &ObjectId) -> Result<Option<Record>> {
         // Iterate through the levels...
         for level in self.levels.iter() {
-            if let Some(val) = level.get(key)? {
+            if let Some(val) = level.get(key).await? {
                 return Ok(Some(val));
             }
         }
@@ -70,7 +70,7 @@ impl LSMTree {
     /// Get a value from the LSM Tree.
     /// 
     /// This will first check the in-memory buffer, then the on-disk levels.
-    pub fn get(&self, key: &ObjectId) -> Result<Option<Document>> {
+    pub async fn get(&self, key: &ObjectId) -> Result<Option<Document>> {
         // First try to get it from the memtable...
         if let Some(value) = self.memtable.get(key) {
             return match value {
@@ -90,7 +90,7 @@ impl LSMTree {
         }
 
         // Otherwise try to get it from disk...
-        match self.get_from_disk(key)? {
+        match self.get_from_disk(key).await? {
             Some(rec) => match rec.value {
                 Value::Data(doc) => Ok(Some(doc)),
                 Value::Tombstone => Ok(None),
@@ -101,9 +101,9 @@ impl LSMTree {
 
     /// Move through the levels of the LSM Tree (including the memtable)
     /// and compact them, if necessary.
-    pub fn compaction_cycle(&mut self) -> Result<()> {
+    pub async fn compaction_cycle(&mut self) -> Result<()> {
         // Compact the memtable...
-        self.compact_memtable(false)?;
+        self.compact_memtable(false).await?;
 
         // Iterate through the levels...
         // Using a while loop as number of levels may change during compaction...
@@ -119,7 +119,7 @@ impl LSMTree {
 
                 // Compact the level...
                 let n = i + 1; // The level number is 1-indexed...
-                self.compact_level(n, false)?;
+                self.compact_level(n, false).await?;
             }
             i += 1;
         }
@@ -131,7 +131,7 @@ impl LSMTree {
     /// # Arguments
     /// 
     /// * `force` - If `true`, the memtable will be compacted even if it isn't full.
-    fn compact_memtable(&mut self, force: bool) -> Result<()> {
+    async fn compact_memtable(&mut self, force: bool) -> Result<()> {
         // Is the memtable full?
         if !force || !self.memtable.is_full() {
             // Not full, stop here...
@@ -155,12 +155,12 @@ impl LSMTree {
 
         // Does a new level need to be created before adding the sstable?
         if self.levels.len() == 0 {
-            self.add_level(true)?;
+            self.add_level(true).await?;
         }
 
         // Add the ss-table to the first level...
         // (There should now be at least one level) 
-        self.levels[0].add_sstable(&sstable)?;
+        self.levels[0].add_sstable(&sstable).await?;
 
         // Remove the frozen memtable...
         self.frozen_memtable = None;
@@ -173,7 +173,7 @@ impl LSMTree {
     /// 
     /// * `n` - The level number (1-indexed).
     /// * `force` - If `true`, the memtable will be compacted even if it isn't full.
-    fn compact_level(&mut self, n: usize, force: bool) -> Result<()> {
+    async fn compact_level(&mut self, n: usize, force: bool) -> Result<()> {
         // Validate the level number...
         if n == 0 {
             return Err(anyhow!("Level number must be greater than 0"));
@@ -200,20 +200,20 @@ impl LSMTree {
             }
         
             // Compact the level...
-            level.compact_tables()?
+            level.compact_tables().await?
         };
 
         // Does a new level need to be created before adding the sstable?
         if level_len == n {
-            self.add_level(true)?;
+            self.add_level(true).await?;
         }
 
         // Add the ss-table to the next level...
         // (There should now be at least n levels)
-        self.levels[i+1].add_sstable(&new_table)?;
+        self.levels[i+1].add_sstable(&new_table).await?;
         
         // Clear the old level...
-        self.levels[i].clear(&old_table_ids)?;
+        self.levels[i].clear(&old_table_ids).await?;
         Ok(())
     }
 
@@ -226,14 +226,14 @@ impl LSMTree {
     /// # Returns
     /// 
     /// A `Result` containing `Ok(())` if the level was added successfully.
-    pub fn add_level(&mut self, to_disk: bool) -> Result<()> {
+    pub async fn add_level(&mut self, to_disk: bool) -> Result<()> {
         // Create a new level...
         let level = Level::new(
             self.path.as_str(), 
             self.levels.len() + 1, 
             vec![],
             to_disk,
-        )?;
+        ).await?;
 
         // Add the level to the LSM Tree...
         self.levels.push(level);

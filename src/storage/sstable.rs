@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
 use core::cmp::Ordering;
+use tokio::fs;
+use tokio::io::{BufReader, AsyncReadExt, AsyncWriteExt};
 
 use crate::storage::record::*;
 use crate::storage::conf::*;
@@ -44,33 +46,49 @@ impl SSTableHandle {
     }
 
     /// Reads the SSTable from disk, from `self.path`.
-    pub fn read(&self) -> Result<SSTable> {
-        let file = std::fs::File::open(&self.path)?;
-        let reader = std::io::BufReader::new(file);
-        let sstable: SSTable = bson::from_reader(reader)?;
+    pub async fn read(&self) -> Result<SSTable> {
+        // Open the file and wrap it in a reader...
+        let file = fs::File::open(&self.path).await?;
+        let mut reader = BufReader::new(file);
+        
+        // Read the file into a buffer (since bson doesn't support async)...
+        let mut buff: Vec<u8> = Vec::new();
+        reader.read_to_end(&mut buff).await?;
+
+        // Convert the buffer to a document and return...
+        let sstable: SSTable = bson::from_slice(&buff)?;
         Ok(sstable)
     }
 
     /// Writes the SSTable to disk.
     /// 
     /// The data is written to `self.path` as a BSON document.
-    pub fn write(&self, sstable: &SSTable) -> Result<()> {
-        let file = std::fs::File::create(&self.path)?;
-        let writer = std::io::BufWriter::new(file);
+    pub async fn write(&self, sstable: &SSTable) -> Result<()> {
+        // Convert the table to a document...
         let doc = bson::to_document(sstable)?;
-        doc.to_writer(writer)?;
+
+        // Write the document to a vec buffer...
+        let mut buff: Vec<u8> = Vec::new();
+        doc.to_writer(&mut buff)?;
+
+        // Write the buffer to disk...
+        let mut file = fs::File::create(&self.path).await?;
+        file.write_all(&buff).await?;
+
+        // Success!
         Ok(())
     }
 
     /// Deletes the SSTable from disk (at `self.path`).
-    pub fn delete(&self) -> Result<()> {
-        std::fs::remove_file(&self.path)?;
+    pub async fn delete(&self) -> Result<()> {
+        tokio::fs::remove_file(&self.path).await?;
         Ok(())
     }
 
     /// Returns a bloom filter for this SSTable.
-    pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
-        self.read()?
+    pub async fn get_bloom_filter(&self) -> Result<BloomFilter> {
+        self.read()
+            .await?
             .get_bloom_filter()
     }
 }
@@ -236,7 +254,7 @@ impl SSTable {
     /// # Returns
     /// 
     /// An `SSTableHandle` for working with this SSTable on disk.
-    pub fn get_handle(&self, parent_path: &str, write: bool) -> Result<SSTableHandle> {
+    pub async fn get_handle(&self, parent_path: &str, write: bool) -> Result<SSTableHandle> {
         // Format the path...
         let tids = self.meta.table_id.to_string();
         let path = Path::new(parent_path);
@@ -252,7 +270,8 @@ impl SSTable {
 
         // If we're writing, write the SSTable to disk...
         if write {
-            handle.write(self)?;
+            handle.write(self)
+                .await?;
         }
 
         // Return the handle...
@@ -332,8 +351,8 @@ mod test {
     use bson::oid::ObjectId;
     use anyhow::Result;
 
-    #[test]
-    fn create_and_read_sstable() -> Result<()> {
+    #[tokio::test]
+    async fn create_and_read_sstable() -> Result<()> {
         // Create an sstable...
         let records = vec![
             Record {
@@ -362,7 +381,8 @@ mod test {
         let parent_path = "/tmp";
 
         // Create a handle for the sstable...
-        let handle = sstable.get_handle(parent_path, false)?;
+        let handle = sstable.get_handle(parent_path, false)
+            .await?;
 
         // Get the path...
         let path = Path::new(parent_path)
@@ -372,13 +392,15 @@ mod test {
         assert!(!path.exists(), "Expected path to not exist");
 
         // Write the sstable to disk...
-        handle.write(&sstable)?;
+        handle.write(&sstable)
+            .await?;
 
         // Check that the path exists...
         assert!(path.exists(), "Expected path to exist");
 
         // Read in the sstable...
-        let sstable2 = handle.read()?;
+        let sstable2 = handle.read()
+            .await?;
 
         // Check that the record counts are the same...
         assert_eq!(
@@ -394,7 +416,8 @@ mod test {
         assert!(path.exists(), "Expected path to exist");
 
         // Delete the sstable...
-        handle.delete()?;
+        handle.delete()
+            .await?;
 
         // Check that the table is no longer stored where expected...
         assert!(!path.exists(), "Expected path to not exist");

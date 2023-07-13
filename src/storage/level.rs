@@ -5,6 +5,8 @@ use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
+use tokio::fs;
+use tokio::io::{BufReader, AsyncReadExt, AsyncWriteExt};
 
 use crate::storage::conf::*;
 use crate::storage::sstable::*;
@@ -49,7 +51,7 @@ impl Level {
     /// # Returns
     /// 
     /// Returns a `Result` containing either the new level or an `Error`.
-    pub fn new(parent_path: &str, level_number: usize, tables: Vec<SSTableHandle>, to_disk: bool) -> Result<Self> {
+    pub async fn new(parent_path: &str, level_number: usize, tables: Vec<SSTableHandle>, to_disk: bool) -> Result<Self> {
         // Create the metadata...
         let meta = LevelMeta::new(
             level_number, 
@@ -64,21 +66,6 @@ impl Level {
             .ok_or(anyhow!("Couldn't format level path"))?
             .to_string();
 
-        if to_disk {
-            // Create the directory...
-            std::fs::create_dir_all(&path)?;
-        
-            // Create the meta file...
-            let meta_path = Path::new(&path)
-                .join(LEVEL_META_FILE);
-            
-            // Write the metadata as BSON...
-            let file = std::fs::File::create(meta_path)?;
-            let writer = std::io::BufWriter::new(file);
-            let doc = bson::to_document(&meta)?;
-            doc.to_writer(writer)?;
-        }
-
         // Create the bloom filter...
         let bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
@@ -86,20 +73,31 @@ impl Level {
         );
 
         // Create the level...
-        Ok(Level {
+        let level = Level {
             meta,
             tables,
             bloom_filter,
-            path,
+            path: path.clone(),
             max_tables: MAX_TABLES_PER_LEVEL,
             records_per_table: MEMTABLE_MAX_SIZE * level_number,
-        })
+        };
+
+        if to_disk {
+            // Create the directory...
+            fs::create_dir_all(&path).await?;
+
+            // Write the metadata to disk...
+            level.write_meta().await?;
+        }
+
+        // Return the level...
+        Ok(level)
     }
 
     /// Gets the bloom filter from the level's SSTables and returns.
     /// 
     /// Note this *doesn't* change the `self.bloom_filter`.
-    pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
+    pub async fn get_bloom_filter(&self) -> Result<BloomFilter> {
         // Create a new, empty bloom filter...
         let mut bloom_filter = BloomFilter::with_rate(
             BLOOM_FILTER_ERROR_RATE, 
@@ -109,7 +107,7 @@ impl Level {
         // Iterate over the table handles (in reverse order)...
         for table in self.tables.iter().rev() {
             // Read in the table...
-            let sstable = table.read()?;
+            let sstable = table.read().await?;
 
             // Iterate over the table's records...
             for record in sstable.records.iter() {
@@ -145,7 +143,7 @@ impl Level {
     }
  
     /// Adds an SSTable to this level.
-    pub fn add_sstable(&mut self, table: &SSTable) -> Result<()> {
+    pub async fn add_sstable(&mut self, table: &SSTable) -> Result<()> {
         // Get the path to the table...
         let table_path = self.format_table_path(&table.meta.table_id)
             .ok_or(anyhow!("Couldn't format table path"))?;
@@ -157,13 +155,14 @@ impl Level {
         );
 
         // Write the table to disk...
-        handle.write(table)?;
+        handle.write(table)
+            .await?;
         
         // Add the handle...
         self.tables.push(handle);
 
         // Update the metadata...
-        self.update_table_ids()?;
+        self.update_table_ids().await?;
         Ok(())
     }
 
@@ -177,15 +176,19 @@ impl Level {
     }
 
     /// Reads the metadata for this level from disk.
-    pub fn load_meta(&mut self) -> Result<()> {
+    pub async fn load_meta(&mut self) -> Result<()> {
         // Get the path to the meta file...
         let p = self.format_meta_path()
             .ok_or(anyhow!("Couldn't format meta path"))?;
 
         // Read in the metadata...
-        let file = std::fs::File::open(p)?;
-        let reader = std::io::BufReader::new(file);
-        let meta: LevelMeta = bson::from_reader(reader)?;
+        let file = fs::File::open(p).await?;
+        let mut reader = BufReader::new(file);
+
+        let mut buff: Vec<u8> = vec![];
+        reader.read_to_end(&mut buff).await?;
+
+        let meta: LevelMeta = bson::from_slice(&buff)?;
 
         // Set the metadata...
         self.meta = meta;
@@ -193,16 +196,23 @@ impl Level {
     }
 
     /// Writes the metadata for this level to disk.
-    pub fn write_meta(&self) -> Result<()> {
+    pub async fn write_meta(&self) -> Result<()> {
         // Get the path to the meta file...
         let p = self.format_meta_path()
             .ok_or(anyhow!("Couldn't format meta path"))?;
 
-        // Write the metadata...
-        let file = std::fs::File::create(p)?;
-        let writer = std::io::BufWriter::new(file);
+        // Convert the metadata to a BSON document...
         let doc = bson::to_document(&self.meta)?;
-        doc.to_writer(writer)?;
+        
+        // Write to a vec buffer (since bson won't write async-ly)...
+        let mut buff: Vec<u8> = vec![];
+        doc.to_writer(&mut buff)?;
+        
+        // Write to disk...
+        let mut file = fs::File::create(p).await?;
+        file.write_all(&buff).await?;
+
+        // Success!
         Ok(())
     }
 
@@ -223,7 +233,7 @@ impl Level {
     /// If the `Result` is `Ok(Some(record))`, then the record was found. If
     /// the `Result` is `Ok(None)`, then the record was not found. If the 
     /// `Result` is `Err`, then an error occurred.
-    pub fn get(&self, key: &ObjectId) -> Result<Option<Record>> {
+    pub async fn get(&self, key: &ObjectId) -> Result<Option<Record>> {
         // Check the bloom filter first...
         if self.doesnt_contain(key) {
             return Ok(None);
@@ -244,7 +254,7 @@ impl Level {
             }
 
             // Read in the table...
-            let sstable = th.read()?;
+            let sstable = th.read().await?;
 
             // Check if the table contains the key...
             if let Some(record) = sstable.get(key) {
@@ -262,7 +272,7 @@ impl Level {
     /// # Returns
     /// 
     /// Returns a reference the new SSTable.
-    pub fn compact_tables(&self) -> Result<CompactResult> {
+    pub async fn compact_tables(&self) -> Result<CompactResult> {
         // Create a place to store the merged SSTable...
         let mut res: Option<SSTable> = None;
 
@@ -275,7 +285,7 @@ impl Level {
             old_table_ids.push(table.meta.table_id);
 
             // Read in the table...
-            let sstable = table.read()?;
+            let sstable = table.read().await?;
             if let Some(prev) = res {
                 // Merge the table with the accumulated SSTable...
                 let m = prev.merge(&sstable)?;
@@ -309,7 +319,7 @@ impl Level {
     /// 
     /// Returns a `Result` containing either `()` if successful or 
     /// an `Error` if not.
-    pub fn clear(&mut self, ids: &[ObjectId]) -> Result<()> {
+    pub async fn clear(&mut self, ids: &[ObjectId]) -> Result<()> {
         // Create a vector to store the remaining tables...
         let mut remaining = vec![];
 
@@ -321,7 +331,7 @@ impl Level {
             // Check if the table is in the ids...
             if ids.contains(&table.meta.table_id) {
                 // The table is in the ids, so delete it...
-                table.delete()?;
+                table.delete().await?;
             } else {
                 // The table isn't in the ids, so keep it...
                 remaining.push(table.clone());
@@ -332,7 +342,7 @@ impl Level {
         self.tables = remaining;
 
         // Update the metadata...
-        self.update_table_ids()?;
+        self.update_table_ids().await?;
 
         // Success!
         Ok(())
@@ -347,7 +357,7 @@ impl Level {
     /// 
     /// Returns a `Result` containing either `()` if successful or
     /// an `Error` if not.
-    pub fn clear_all(&mut self) -> Result<()> {
+    pub async fn clear_all(&mut self) -> Result<()> {
         // Get the tables...
         let tables = self.tables.clone();
 
@@ -357,13 +367,13 @@ impl Level {
         // Iterate through deleting the old tables...
         for table in tables {
             // Delete the table...
-            table.delete()?;
+            table.delete().await?;
         }
         Ok(())
     }
 
     /// Updates the table ids in the level's metadata.
-    pub fn update_table_ids(&mut self) -> Result<()> {
+    pub async fn update_table_ids(&mut self) -> Result<()> {
         self.meta.table_ids = self.tables
             .iter()
             .map(|t| t.meta.table_id)
@@ -373,10 +383,10 @@ impl Level {
         self.meta.num_tables = self.tables.len();
 
         // Update the bloom filter...
-        self.bloom_filter = self.get_bloom_filter()?;
+        self.bloom_filter = self.get_bloom_filter().await?;
 
         // Update the metadata file on disk...
-        self.write_meta()?;
+        self.write_meta().await?;
 
         // Success!
         Ok(())
@@ -437,15 +447,15 @@ mod test {
     use bson::doc;
     use anyhow::Result;
 
-    #[test]
-    fn create_level() -> Result<()> {
+    #[tokio::test]
+    async fn create_level() -> Result<()> {
         // Create a new level with no tables...
         let level = Level::new(
             "/tmp", 
             1, 
             vec![], 
             true,
-        )?;
+        ).await?;
 
         // Check if the directory exists at (/tmp/<level_id>)...
         let path = Path::new("/tmp")
@@ -469,19 +479,19 @@ mod test {
         assert_eq!(meta, level.meta);
 
         // (Clean up) Remove the directory...
-        std::fs::remove_dir_all(path)?;
+        fs::remove_dir_all(path).await?;
         Ok(())
     }
 
-    #[test]
-    fn get_bloom_filter() -> Result<()> {
+    #[tokio::test]
+    async fn get_bloom_filter() -> Result<()> {
         // Create a new level with no tables...
         let mut level = Level::new(
             "/tmp", 
             1, 
             vec![], 
             true,
-        )?;
+        ).await?;
 
         // Create an ID to check for...
         let id = ObjectId::new();
@@ -500,10 +510,10 @@ mod test {
         )?;
 
         // Add the SSTable to the level...
-        level.add_sstable(&table)?;
+        level.add_sstable(&table).await?;
 
         // Get the bloom filter...
-        let bloom_filter = level.get_bloom_filter()?;
+        let bloom_filter = level.get_bloom_filter().await?;
 
         // Check if the bloom filter contains the id...
         assert!(bloom_filter.contains(&id));
@@ -512,24 +522,24 @@ mod test {
         assert!(!bloom_filter.contains(&ObjectId::new()));
 
         // (Clean up) Remove the directory...
-        std::fs::remove_dir_all(
+        fs::remove_dir_all(
             Path::new("/tmp")
                 .join(level.meta.id.to_string())
-            )?;
+            ).await?;
 
         // Success!
         Ok(())
     }
 
-    #[test]
-    fn doesnt_contain() -> Result<()> {
+    #[tokio::test]
+    async fn doesnt_contain() -> Result<()> {
         // Create a new level with no tables...
         let mut level = Level::new(
             "/tmp", 
             1, 
             vec![], 
             true,
-        )?;
+        ).await?;
         println!("level_id = {}", level.meta.id);
 
         // Create a new key...
@@ -562,18 +572,18 @@ mod test {
         assert!(level.doesnt_contain(&key));
 
         // Add the table to the level...
-        level.add_sstable(&table)?;
+        level.add_sstable(&table).await?;
 
         let table_bloom_filter = table.get_bloom_filter()?;
         assert!(table_bloom_filter.contains(&key));
 
         // Get the value from the level...
-        let val = level.get(&key)?;
+        let val = level.get(&key).await?;
         println!("val = {:?}", val);
         assert!(val.is_some());
 
         // Check that the Record is a document with the key "msg"...
-        let val = val.unwrap();
+        let val = val.ok_or(anyhow!("No value found"))?;
         assert_eq!(val.key, key);
         assert_eq!(val.value, Value::Data(doc! { "msg": "world" }));
 
@@ -581,26 +591,24 @@ mod test {
         assert!(!level.doesnt_contain(&key));
 
         // Clean up...
-        std::fs::remove_dir_all(
+        fs::remove_dir_all(
             Path::new("/tmp")
                 .join(level.meta.id.to_string())
-            )?;
+            ).await?;
 
         // Done!
         Ok(())
     }
 
-    
-    
-    #[test]
-    fn add_sstable() -> Result<()> {
+    #[tokio::test]
+    async fn add_sstable() -> Result<()> {
         // Create a new level with no tables...
         let mut level = Level::new(
             "/tmp", 
             1, 
             vec![], 
             true,
-        )?;
+        ).await?;
 
         // Create a new SSTable...
         let table = SSTable::new(
@@ -611,7 +619,7 @@ mod test {
         )?;
 
         // Add the SSTable to the level...
-        level.add_sstable(&table)?;
+        level.add_sstable(&table).await?;
         
         // Check if the id is in the level's metadata...
         assert!(level.meta.table_ids.contains(&table.meta.table_id));
@@ -631,10 +639,10 @@ mod test {
         assert_eq!(table, table);
 
         // (Clean up) Remove the directory...
-        std::fs::remove_dir_all(
+        fs::remove_dir_all(
             Path::new("/tmp")
                 .join(level.meta.id.to_string())
-            )?;
+            ).await?;
         Ok(())
     }
 
@@ -653,15 +661,15 @@ mod test {
     //     todo!();
     // }
 
-    #[test]
-    fn is_full() -> Result<()> {
+    #[tokio::test]
+    async fn is_full() -> Result<()> {
         // Create a new level with no tables...
         let mut level = Level::new(
             "/tmp", 
             1, 
             vec![], 
             true,
-        )?;
+        ).await?;
 
         // Iterate through the max number of tables, adding handles to the level,
         // checking if the level is full after each iteration. It should only be
@@ -675,7 +683,7 @@ mod test {
             )?;
 
             // Add the SSTable to the level...
-            level.add_sstable(&table)?;
+            level.add_sstable(&table).await?;
 
             // Check if the level is full...
             if i == MAX_TABLES_PER_LEVEL - 1 {
@@ -686,10 +694,10 @@ mod test {
         }
 
         // (Clean up) Remove the directory...
-        std::fs::remove_dir_all(
+        fs::remove_dir_all(
             Path::new("/tmp")
                 .join(level.meta.id.to_string())
-            )?;
+            ).await?;
 
         // Done!
         Ok(())
