@@ -457,10 +457,14 @@ mod test {
             true,
         ).await?;
 
+        println!("Created level: {:?}", level.meta.id);
+
         // Check if the directory exists at (/tmp/<level_id>)...
         let path = Path::new("/tmp")
             .join(level.meta.id.to_string());
         assert!(path.exists());
+
+        println!("path {:?} exists", path);
         
         // And check if it's a directory...
         assert!(path.is_dir());
@@ -473,9 +477,16 @@ mod test {
         assert!(meta_path.is_file());
 
         // Read the metadata back in and compare it to the level's metadata...
-        let file = std::fs::File::open(meta_path)?;
-        let reader = std::io::BufReader::new(file);
-        let meta: LevelMeta = bson::from_reader(reader)?;
+        let meta = {
+            let file = fs::File::open(meta_path).await?;
+            let mut reader = BufReader::new(file);
+
+            let mut buff: Vec<u8> = vec![];
+            reader.read_to_end(&mut buff).await?;
+
+            let meta: LevelMeta = bson::from_slice(&buff)?;
+            meta
+        };
         assert_eq!(meta, level.meta);
 
         // (Clean up) Remove the directory...
