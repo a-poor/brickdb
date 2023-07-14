@@ -11,6 +11,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// 
 /// If the file already exists, it will be overwritten.
 /// 
+/// The document will be compressed with snappy before being written
+/// to disk -- which is expected when reading the data back in.
+/// 
 /// # Arguments
 /// 
 /// * `path` - The path to write the document to.
@@ -23,6 +26,10 @@ pub async fn write_bson(path: impl AsRef<Path>, doc: &Document) -> Result<()> {
     // Write the document to a buffer...
     let mut buffer: Vec<u8> = vec![];
     doc.to_writer(&mut buffer)?;
+
+    // Create an encoder and compress the data...
+    let mut encoder = snap::raw::Encoder::new();
+    let buffer = encoder.compress_vec(&buffer)?;
 
     // Write to disk...
     let mut file = File::create(path).await?;
@@ -41,6 +48,9 @@ pub async fn write_bson(path: impl AsRef<Path>, doc: &Document) -> Result<()> {
 
 /// Read bson data from disk.
 /// 
+/// This expects the data to be compressed with snappy and will 
+/// decompress it before returning it.
+/// 
 /// # Arguments
 /// 
 /// * `path` - The path to the file from which to read the bson data.
@@ -56,8 +66,12 @@ pub async fn read_bson(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     file.read_to_end(&mut buf).await?;
 
+    // Create a snap decoder...
+    let mut decoder = snap::raw::Decoder::new();
+    let bytes = decoder.decompress_vec(&buf)?;
+
     // Done!
-    Ok(buf)
+    Ok(bytes)
 }
 
 
