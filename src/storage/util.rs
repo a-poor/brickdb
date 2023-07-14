@@ -27,9 +27,9 @@ pub async fn write_bson(path: impl AsRef<Path>, doc: &Document) -> Result<()> {
     let mut buffer: Vec<u8> = vec![];
     doc.to_writer(&mut buffer)?;
 
-    // Create an encoder and compress the data...
-    let mut encoder = snap::raw::Encoder::new();
-    let buffer = encoder.compress_vec(&buffer)?;
+    // // Create an encoder and compress the data...
+    // let mut encoder = snap::raw::Encoder::new();
+    // let buffer = encoder.compress_vec(&buffer)?;
 
     // Write to disk...
     let mut file = File::create(path).await?;
@@ -66,12 +66,12 @@ pub async fn read_bson(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     file.read_to_end(&mut buf).await?;
 
-    // Create a snap decoder...
-    let mut decoder = snap::raw::Decoder::new();
-    let bytes = decoder.decompress_vec(&buf)?;
+    // // Create a snap decoder...
+    // let mut decoder = snap::raw::Decoder::new();
+    // let buf = decoder.decompress_vec(&buf)?;
 
     // Done!
-    Ok(bytes)
+    Ok(buf)
 }
 
 
