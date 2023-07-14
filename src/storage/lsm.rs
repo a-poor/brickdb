@@ -242,6 +242,18 @@ impl LSMTree {
 }
 
 
+/// A struct representing the metadata for an LSM Tree.
+pub struct LSMTreeMeta {
+    /// The unique identifier for this LSM Tree.
+    pub id: ObjectId,
+
+    /// The name of this LSM Tree.
+    pub name: String,
+
+    /// The path to the directory where this LSM Tree's data is stored.
+    pub path: String,
+}
+
 #[cfg(test)]
 mod test {}
 
