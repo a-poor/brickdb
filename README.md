@@ -6,7 +6,6 @@
 [![docs.rs](https://img.shields.io/docsrs/brickdb)](https://docs.rs/brickdb)
 
 
-
 _created by Austin Poor_
 
 A small basic proof-of-concept database written in Rust. I wouldn't recommend using this in production.
@@ -19,6 +18,7 @@ A small basic proof-of-concept database written in Rust. I wouldn't recommend us
 - [x] Like the above, should also (maybe) work with SSTables? Or do they not need to, since they're read-only?
     - Maybe they don't need to but need to be able to mark which table-ids are being compacted. So compaction can start on level 1 (say) and while it's happening, they can still be read from, until the new level-2 table is ready, at which point the level-1 tables can be removed. But since a new level one table might have been added (probably _shouldn't_ have been but _could_ have been), the compaction process should remember which tables it's including and not just say _all tables in level 1_.
 - [x] Compress data written to disk with snappy compression? (try `snap`)
+- [ ] There was an error with the snappy compression that I didn't *really* look into deeply. Go back and figure it out!
 - [ ] Update `todo!()`s in tests (and the commented-out tests)
 - [ ] Add the ability to encrypt data on disk (`aes` with [ring](https://docs.rs/ring/latest/ring)?)
 - [ ] The `bloom` create hasn't had any updates in the past 7 years. Consider changing to a different implementation or writing it myself.

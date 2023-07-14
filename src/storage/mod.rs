@@ -1,5 +1,6 @@
 //! This module handles database storage.
 
+pub mod table;
 pub mod lsm;
 pub mod sstable;
 pub mod memtable;
