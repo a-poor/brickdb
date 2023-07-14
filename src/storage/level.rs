@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
 use tokio::fs;
-use tokio::io::{BufReader, AsyncReadExt, AsyncWriteExt};
 
 use crate::storage::conf::*;
 use crate::storage::sstable::*;
 use crate::storage::record::*;
+use crate::storage::util::*;
 
 
 /// An on-disk level in the LSM Tree, comprised of zero or more SSTables.
@@ -56,7 +56,10 @@ impl Level {
         let meta = LevelMeta::new(
             level_number, 
             tables.len(), 
-            tables.iter().map(|t| t.meta.table_id).collect(),
+            tables
+                .iter()
+                .map(|t| t.meta.table_id)
+                .collect(),
         );
         
         // Format the path...
@@ -91,6 +94,56 @@ impl Level {
         }
 
         // Return the level...
+        Ok(level)
+    }
+
+    pub async fn load_from_file(parent_path: &str, id: &ObjectId) -> Result<Self> {
+        // Get the level's path...
+        let path = Path::new(parent_path);
+        let path = path.join(id.to_string());
+        let path = path.to_str()
+            .ok_or(anyhow!("Couldn't format level path"))?
+            .to_string();
+
+        // CHeck that the path exists and is a directory...
+        let path = Path::new(&path);
+        if !path.exists() {
+            return Err(anyhow!("Level path doesn't exist"));
+        }
+        if !path.is_dir() {
+            return Err(anyhow!("Level path isn't a directory"));
+        }
+
+        // Load the metadata...
+        let meta_path = path.join(LEVEL_META_FILE);
+        let meta = {
+            let bytes = read_bson(meta_path).await?;
+            let meta: LevelMeta = bson::from_slice(&bytes)?;
+            meta
+        };
+        let level_num = meta.level;
+
+        // Create the level...
+        let mut level = Level {
+            meta,
+            tables: vec![],
+            bloom_filter: BloomFilter::with_rate(
+                BLOOM_FILTER_ERROR_RATE, 
+                BLOOM_FILTER_SIZE,
+            ),
+            path: path.to_str()
+                .ok_or(anyhow!("Couldn't format level path"))?
+                .to_string(),
+            max_tables: MAX_TABLES_PER_LEVEL,
+            records_per_table: MEMTABLE_MAX_SIZE * level_num,
+        };
+
+        // Load the tables...
+        level.reload_handles().await?;
+
+        // Load the bloom filter...
+        level.bloom_filter = level.get_bloom_filter().await?;
+
         Ok(level)
     }
 
@@ -166,28 +219,14 @@ impl Level {
         Ok(())
     }
 
-    /// Returns the path to the metadata file for this level based
-    /// on the level directory path and the metadata file name.
-    fn format_meta_path(&self) -> Option<String> {
-        Path::new(&self.path)
-            .join(LEVEL_META_FILE)
-            .to_str()
-            .map(|s| s.to_string())
-    }
-
     /// Reads the metadata for this level from disk.
     pub async fn load_meta(&mut self) -> Result<()> {
         // Get the path to the meta file...
-        let p = self.format_meta_path()
+        let path = format_meta_path(self.path.as_str())
             .ok_or(anyhow!("Couldn't format meta path"))?;
 
-        // Read in the metadata...
-        let file = fs::File::open(p).await?;
-        let mut reader = BufReader::new(file);
-
-        let mut buff: Vec<u8> = vec![];
-        reader.read_to_end(&mut buff).await?;
-
+        // Read in the data and deserialize from BSON...
+        let buff = read_bson(path).await?;
         let meta: LevelMeta = bson::from_slice(&buff)?;
 
         // Set the metadata...
@@ -198,20 +237,15 @@ impl Level {
     /// Writes the metadata for this level to disk.
     pub async fn write_meta(&self) -> Result<()> {
         // Get the path to the meta file...
-        let p = self.format_meta_path()
+        let path = format_meta_path(&self.path)
             .ok_or(anyhow!("Couldn't format meta path"))?;
 
         // Convert the metadata to a BSON document...
         let doc = bson::to_document(&self.meta)?;
-        
-        // Write to a vec buffer (since bson won't write async-ly)...
-        let mut buff: Vec<u8> = vec![];
-        doc.to_writer(&mut buff)?;
-        
-        // Write to disk...
-        let mut file = fs::File::create(p).await?;
-        file.write_all(&buff).await?;
 
+        // Write the data...
+        write_bson(path, &doc).await?;
+        
         // Success!
         Ok(())
     }
@@ -391,6 +425,63 @@ impl Level {
         // Success!
         Ok(())
     }
+
+    /// Reloads the table handles from disk.
+    /// 
+    /// Uses the table ids in the level's metadata to reload
+    /// the table handles from disk.
+    pub async fn reload_handles(&mut self) -> Result<()> {
+        // Create a vector to store the handles...
+        let mut handles = vec![];
+
+        // Create a bloom filter for the level...
+        let mut bf = BloomFilter::with_rate(
+            BLOOM_FILTER_ERROR_RATE, 
+            BLOOM_FILTER_SIZE,
+        );
+
+        // Iterate through the table ids...
+        // TODO - Make this parallel?
+        for id in self.meta.table_ids.iter() {
+            // Get the path to the table...
+            let table_path = self.format_table_path(id)
+                .ok_or(anyhow!("Couldn't format table path"))?;
+
+            // Read in the table...
+            let table = {
+                let bytes = read_bson(table_path.clone()).await?;
+                let table: SSTable = bson::from_slice(&bytes)?;
+                table
+            };
+
+            // Create the handle...
+            let handle = SSTableHandle {
+                active: true,
+                meta: table.meta,
+                path: table_path,
+            };
+
+            // Add the table's records to the bloom filter...
+            for record in table.records.iter() {
+                bf.insert(&record.key);
+            }
+
+            // Add the handle to the vector...
+            handles.push(handle);
+        }
+
+        // Sort the handles by create date (desc)...
+        handles.sort_by(|a, b| b.meta.created_at.cmp(&a.meta.created_at));
+
+        // Set the handles...
+        self.tables = handles;
+
+        // Set the bloom filter...
+        self.bloom_filter = bf;
+
+        // Success!
+        Ok(())
+    }
 }
 
 pub struct CompactResult {
@@ -441,6 +532,14 @@ impl LevelMeta {
 }
 
 
+fn format_meta_path(path: &str) -> Option<String> {
+    Path::new(path)
+        .join(LEVEL_META_FILE)
+        .to_str()
+        .map(|s| s.to_string())
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -478,13 +577,8 @@ mod test {
 
         // Read the metadata back in and compare it to the level's metadata...
         let meta = {
-            let file = fs::File::open(meta_path).await?;
-            let mut reader = BufReader::new(file);
-
-            let mut buff: Vec<u8> = vec![];
-            reader.read_to_end(&mut buff).await?;
-
-            let meta: LevelMeta = bson::from_slice(&buff)?;
+            let bytes = read_bson(meta_path).await?;
+            let meta: LevelMeta = bson::from_slice(&bytes)?;
             meta
         };
         assert_eq!(meta, level.meta);

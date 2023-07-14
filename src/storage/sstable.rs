@@ -5,11 +5,10 @@ use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
 use core::cmp::Ordering;
-use tokio::fs;
-use tokio::io::{BufReader, AsyncReadExt, AsyncWriteExt};
 
 use crate::storage::record::*;
 use crate::storage::conf::*;
+use crate::storage::util::*;
 
 
 /// A handle that stores the location of an SSTable on disk as 
@@ -37,23 +36,12 @@ impl SSTableHandle {
         }
     }
 
-    pub fn activate(&mut self) {
-        self.active = true;
-    }
-
-    pub fn deactivate(&mut self) {
-        self.active = false;
-    }
-
     /// Reads the SSTable from disk, from `self.path`.
     pub async fn read(&self) -> Result<SSTable> {
         // Open the file and wrap it in a reader...
-        let file = fs::File::open(&self.path).await?;
-        let mut reader = BufReader::new(file);
-        
-        // Read the file into a buffer (since bson doesn't support async)...
-        let mut buff: Vec<u8> = Vec::new();
-        reader.read_to_end(&mut buff).await?;
+        let buff = read_bson(
+            self.path.as_str()
+        ).await?;
 
         // Convert the buffer to a document and return...
         let sstable: SSTable = bson::from_slice(&buff)?;
@@ -68,12 +56,10 @@ impl SSTableHandle {
         let doc = bson::to_document(sstable)?;
 
         // Write the document to a vec buffer...
-        let mut buff: Vec<u8> = Vec::new();
-        doc.to_writer(&mut buff)?;
-
-        // Write the buffer to disk...
-        let mut file = fs::File::create(&self.path).await?;
-        file.write_all(&buff).await?;
+        write_bson(
+            self.path.as_str(), 
+            &doc,
+        ).await?;
 
         // Success!
         Ok(())
