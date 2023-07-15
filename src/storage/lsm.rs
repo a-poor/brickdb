@@ -46,6 +46,11 @@ impl LSMTree {
         }
     }
 
+    /// Load an existing LSM Tree from disk.
+    pub fn load() -> Result<Self> {
+        todo!();
+    }
+
     /// Set a key to a value in the LSM Tree.
     pub fn set(&mut self, key: &ObjectId, doc: Document) {
         self.memtable.set(key, doc);
