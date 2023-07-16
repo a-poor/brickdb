@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package bdb.internal.v0;
+package brickdb.internal.v0;
 
 service InternalServer {
     rpc Ping(PingRequest) returns (PingResponse);

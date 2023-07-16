@@ -1,23 +1,23 @@
 use tonic::{Request, Response, Status};
 use super::gen::{PingRequest, PingResponse};
-use super::gen::internal_server_server::{InternalServer, InternalServerServer};
+use super::gen::database_server_server::{DatabaseServer, DatabaseServerServer};
 
 
-pub fn create_service(server: BDBInternalServer) -> InternalServerServer<BDBInternalServer> {
-    InternalServerServer::new(server)
+pub fn create_service(server: BDBDatabaseServer) -> DatabaseServerServer<BDBDatabaseServer> {
+    DatabaseServerServer::new(server)
 }
 
 #[derive(Debug, Default)]
-pub struct BDBInternalServer;
+pub struct BDBDatabaseServer;
 
-impl BDBInternalServer {
+impl BDBDatabaseServer {
     pub fn new() -> Self {
-        BDBInternalServer {}
+        BDBDatabaseServer {}
     }
 }
 
 #[tonic::async_trait]
-impl InternalServer for BDBInternalServer {
+impl DatabaseServer for BDBDatabaseServer {
     async fn ping(
         &self,
         request: Request<PingRequest>, // Accept request of type HelloRequest

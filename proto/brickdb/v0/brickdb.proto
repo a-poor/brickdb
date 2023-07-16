@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package bdb.v0;
+package brickdb.v0;
 
 service DatabaseServer {
     rpc Ping(PingRequest) returns (PingResponse);
