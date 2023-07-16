@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Dependencies
-        run: apt-get install -y protobuf-compiler libprotobuf-dev
+        run: sudo apt-get install -y protobuf-compiler libprotobuf-dev
       - uses: actions/checkout@v3
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
@@ -23,7 +23,7 @@ jobs:
     # needs: [clippy_check]
     steps:
     - name: Install Dependencies
-      run: apt-get install -y protobuf-compiler libprotobuf-dev
+      run: sudo apt-get install -y protobuf-compiler libprotobuf-dev
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
