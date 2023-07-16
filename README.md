@@ -11,6 +11,13 @@ _created by Austin Poor_
 A small basic proof-of-concept database written in Rust. I wouldn't recommend using this in production.
 
 
+## Ideas for the Future
+
+- Sharding
+- Multi-node clusters (via Raft?)
+- Schema validation (e.g )
+
+
 ## Notes
 
 - [x] Update the `storage::level::Level::new` implementation to format the path using the `path` argument as a _parent directory path_
@@ -24,4 +31,4 @@ A small basic proof-of-concept database written in Rust. I wouldn't recommend us
 - [ ] The `bloom` create hasn't had any updates in the past 7 years. Consider changing to a different implementation or writing it myself.
 - [ ] Add metadata for the `storage::lsm::LSMTree` so it can be read back in.
 - [ ] Create a separate reader/writer implementation for reading/writing data. It can simplify async writing of `bson` data, compression (share encoders/decoders?), and encryption.
-
+- [ ] Implement the `WAL`

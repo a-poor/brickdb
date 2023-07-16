@@ -244,6 +244,20 @@ impl LSMTree {
         self.levels.push(level);
         Ok(())
     }
+
+    
+    pub async fn get_range(&self, _start: Option<&ObjectId>, _end: Option<&ObjectId>) -> Result<Vec<Document>> {
+        todo!();
+    }
+
+    pub async fn get_min(&self) -> Result<Option<Document>> {
+        todo!();
+    }
+
+    pub async fn get_max(&self) -> Result<Option<Document>> {
+        todo!();
+    }
+
 }
 
 

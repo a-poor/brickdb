@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package bdb.internal.v0;
+
+service InternalServer {
+    rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {
+    string name = 1;
+}
+
+message PingResponse {
+    string message = 1;
+}
+
