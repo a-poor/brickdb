@@ -1,17 +1,15 @@
-use std::collections::HashMap;
-use anyhow::Result;
 use crate::db::collection::Collection;
-
+use anyhow::Result;
+use std::collections::HashMap;
 
 pub struct DBMeta {
     /// The name of the database.
     pub name: String,
 
-    /// The path to the directory where this database's 
+    /// The path to the directory where this database's
     /// data is stored.
     pub path: String,
 }
-
 
 /// A representation of a database (a group of [Collection]s).
 pub struct Database {
@@ -39,4 +37,3 @@ impl Database {
         todo!();
     }
 }
-

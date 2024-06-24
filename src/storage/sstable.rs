@@ -1,17 +1,16 @@
-use std::path::Path;
-use bson::DateTime;
-use bson::oid::ObjectId;
-use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use bloom::{BloomFilter, ASMS};
+use bson::oid::ObjectId;
+use bson::DateTime;
 use core::cmp::Ordering;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
-use crate::storage::record::*;
 use crate::storage::conf::*;
+use crate::storage::record::*;
 use crate::storage::util::*;
 
-
-/// A handle that stores the location of an SSTable on disk as 
+/// A handle that stores the location of an SSTable on disk as
 /// well as some metadata.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SSTableHandle {
@@ -39,9 +38,7 @@ impl SSTableHandle {
     /// Reads the SSTable from disk, from `self.path`.
     pub async fn read(&self) -> Result<SSTable> {
         // Open the file and wrap it in a reader...
-        let buff = read_bson(
-            self.path.as_str()
-        ).await?;
+        let buff = read_bson(self.path.as_str()).await?;
 
         // Convert the buffer to a document and return...
         let sstable: SSTable = bson::from_slice(&buff)?;
@@ -49,17 +46,14 @@ impl SSTableHandle {
     }
 
     /// Writes the SSTable to disk.
-    /// 
+    ///
     /// The data is written to `self.path` as a BSON document.
     pub async fn write(&self, sstable: &SSTable) -> Result<()> {
         // Convert the table to a document...
         let doc = bson::to_document(sstable)?;
 
         // Write the document to a vec buffer...
-        write_bson(
-            self.path.as_str(), 
-            &doc,
-        ).await?;
+        write_bson(self.path.as_str(), &doc).await?;
 
         // Success!
         Ok(())
@@ -73,9 +67,7 @@ impl SSTableHandle {
 
     /// Returns a bloom filter for this SSTable.
     pub async fn get_bloom_filter(&self) -> Result<BloomFilter> {
-        self.read()
-            .await?
-            .get_bloom_filter()
+        self.read().await?.get_bloom_filter()
     }
 }
 
@@ -99,17 +91,11 @@ impl SSTable {
         let created_at = id.timestamp();
 
         // Get the min/max keys and count from the records...
-        let min_key = records
-            .first()
-            .ok_or(anyhow!("records vec was empty"))?
-            .key;
-        let max_key = records
-            .last()
-            .ok_or(anyhow!("records vec was empty"))?
-            .key;
+        let min_key = records.first().ok_or(anyhow!("records vec was empty"))?.key;
+        let max_key = records.last().ok_or(anyhow!("records vec was empty"))?.key;
 
         // Create the SSTable...
-        Ok(SSTable { 
+        Ok(SSTable {
             meta: SSTableMeta {
                 table_id: id,
                 created_at,
@@ -123,10 +109,10 @@ impl SSTable {
 
     /// Get the index of the given key in the SSTable. If the key
     /// isn't in the SSTable, returns None.
-    /// 
+    ///
     /// Note that this uses a binary search, so the records must be sorted
     /// -- which they should be, already. This isn't a requirement of the type
-    /// but it is a requirement of the system overall. Additionally, there 
+    /// but it is a requirement of the system overall. Additionally, there
     /// could be an issue if there are multiple records with the same key but,
     /// again, that shouldn't happen based on the system's design.
     pub fn get_index(&self, key: &ObjectId) -> Option<usize> {
@@ -139,9 +125,7 @@ impl SSTable {
     /// isn't in the SSTable, returns None.
     pub fn get(&self, key: &ObjectId) -> Option<Record> {
         let i = self.get_index(key)?;
-        self.records
-            .get(i)
-            .cloned()
+        self.records.get(i).cloned()
     }
 
     /// Get all records in the SSTable with keys in the given range (inclusive).
@@ -149,9 +133,11 @@ impl SSTable {
         // Get the starting point...
         let min_i = match self.get_index(min_key) {
             Some(i) => i,
-            None => { return vec![]; },
+            None => {
+                return vec![];
+            }
         };
-        
+
         // Create a vector to store the records...
         let mut records = vec![];
 
@@ -195,19 +181,19 @@ impl SSTable {
                     // r_newer.key < r_older.key
                     records.push(r_newer.clone());
                     i_newer += 1;
-                },
+                }
                 Ordering::Greater => {
                     // r_newer.key > r_older.key
                     records.push(r_older.clone());
                     i_older += 1;
-                },
+                }
                 Ordering::Equal => {
                     // r1.key == r2.key
                     // Add the newer and skip the older...
                     records.push(r_newer.clone());
                     i_newer += 1;
                     i_older += 1;
-                },
+                }
             }
         }
 
@@ -228,36 +214,33 @@ impl SSTable {
     }
 
     /// Returns a handle for this SSTable.
-    /// 
+    ///
     /// If `write` is true, the SSTable will be written to disk before
     /// returning the handle.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `parent_path` - The path to the directory where this SSTable is stored.
     /// * `write` - A flag indicating whether the SSTable should be opened
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// An `SSTableHandle` for working with this SSTable on disk.
     pub async fn get_handle(&self, parent_path: &str, write: bool) -> Result<SSTableHandle> {
         // Format the path...
         let tids = self.meta.table_id.to_string();
         let path = Path::new(parent_path);
         let path = path.join(tids);
-        let path = path.to_str()
+        let path = path
+            .to_str()
             .ok_or(anyhow!("Failed to create sstable path"))?;
 
         // Create the handle...
-        let handle = SSTableHandle::new(
-            self.meta.clone(), 
-            path,
-        );
+        let handle = SSTableHandle::new(self.meta.clone(), path);
 
         // If we're writing, write the SSTable to disk...
         if write {
-            handle.write(self)
-                .await?;
+            handle.write(self).await?;
         }
 
         // Return the handle...
@@ -266,10 +249,7 @@ impl SSTable {
 
     /// Returns a bloom filter for this SSTable.
     pub fn get_bloom_filter(&self) -> Result<BloomFilter> {
-        let mut bf = BloomFilter::with_rate(
-            BLOOM_FILTER_ERROR_RATE, 
-            BLOOM_FILTER_SIZE,
-        );
+        let mut bf = BloomFilter::with_rate(BLOOM_FILTER_ERROR_RATE, BLOOM_FILTER_SIZE);
         for record in self.records.iter() {
             bf.insert(&record.key);
         }
@@ -333,9 +313,9 @@ impl SSTableMeta {
 #[cfg(test)]
 mod test {
     use super::*;
+    use anyhow::Result;
     use bson::doc;
     use bson::oid::ObjectId;
-    use anyhow::Result;
 
     #[tokio::test]
     async fn create_and_read_sstable() -> Result<()> {
@@ -367,31 +347,27 @@ mod test {
         let parent_path = "/tmp";
 
         // Create a handle for the sstable...
-        let handle = sstable.get_handle(parent_path, false)
-            .await?;
+        let handle = sstable.get_handle(parent_path, false).await?;
 
         // Get the path...
-        let path = Path::new(parent_path)
-            .join(handle.meta.table_id.to_string());
+        let path = Path::new(parent_path).join(handle.meta.table_id.to_string());
 
         // Check that the path doesn't exist yet...
         assert!(!path.exists(), "Expected path to not exist");
 
         // Write the sstable to disk...
-        handle.write(&sstable)
-            .await?;
+        handle.write(&sstable).await?;
 
         // Check that the path exists...
         assert!(path.exists(), "Expected path to exist");
 
         // Read in the sstable...
-        let sstable2 = handle.read()
-            .await?;
+        let sstable2 = handle.read().await?;
 
         // Check that the record counts are the same...
         assert_eq!(
-            sstable.records.len(), 
-            sstable2.records.len(), 
+            sstable.records.len(),
+            sstable2.records.len(),
             "Expected record counts to be equal",
         );
 
@@ -402,8 +378,7 @@ mod test {
         assert!(path.exists(), "Expected path to exist");
 
         // Delete the sstable...
-        handle.delete()
-            .await?;
+        handle.delete().await?;
 
         // Check that the table is no longer stored where expected...
         assert!(!path.exists(), "Expected path to not exist");
@@ -428,7 +403,7 @@ mod test {
             max_key: oid3,
             num_records: 0,
         };
-        
+
         // oid 1, 2, and 3 should be in range...
         assert!(meta.key_in_range(&oid1), "Expected oid1 to be in range");
         assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
@@ -442,11 +417,14 @@ mod test {
             max_key: oid2,
             num_records: 0,
         };
-        
+
         // oid 1 and 2 should be in range, 3 should not...
         assert!(meta.key_in_range(&oid1), "Expected oid1 to be in range");
         assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
-        assert!(!meta.key_in_range(&oid3), "Expected oid3 to be out of range");
+        assert!(
+            !meta.key_in_range(&oid3),
+            "Expected oid3 to be out of range"
+        );
 
         // Create a meta with oid2 and oid3...
         let meta = SSTableMeta {
@@ -456,9 +434,12 @@ mod test {
             max_key: oid3,
             num_records: 0,
         };
-        
+
         // oid 2 and 3 should be in range, 1 should not...
-        assert!(!meta.key_in_range(&oid1), "Expected oid1 to be out of range");
+        assert!(
+            !meta.key_in_range(&oid1),
+            "Expected oid1 to be out of range"
+        );
         assert!(meta.key_in_range(&oid2), "Expected oid2 to be in range");
         assert!(meta.key_in_range(&oid3), "Expected oid3 to be in range");
     }
@@ -497,14 +478,11 @@ mod test {
         let bf = sstable.get_bloom_filter()?;
 
         // Check that `id_in` _is_ in the bloom filter...
-        assert!(
-            bf.contains(&id_in), 
-            "Expected id_in to be in bloom filter",
-        );
+        assert!(bf.contains(&id_in), "Expected id_in to be in bloom filter",);
 
         // Check that `id_out` _is not_ in the bloom filter...
         assert!(
-            !bf.contains(&id_out), 
+            !bf.contains(&id_out),
             "Expected id_out to not be in bloom filter",
         );
 
@@ -512,5 +490,3 @@ mod test {
         Ok(())
     }
 }
-
-

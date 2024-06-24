@@ -1,7 +1,6 @@
-use tonic::{Request, Response, Status};
-use super::gen::{PingRequest, PingResponse};
 use super::gen::internal_server_server::{InternalServer, InternalServerServer};
-
+use super::gen::{PingRequest, PingResponse};
+use tonic::{Request, Response, Status};
 
 pub fn create_service(server: BDBInternalServer) -> InternalServerServer<BDBInternalServer> {
     InternalServerServer::new(server)
@@ -21,7 +20,8 @@ impl InternalServer for BDBInternalServer {
     async fn ping(
         &self,
         request: Request<PingRequest>, // Accept request of type HelloRequest
-    ) -> Result<Response<PingResponse>, Status> { // Return an instance of type HelloReply
+    ) -> Result<Response<PingResponse>, Status> {
+        // Return an instance of type HelloReply
         println!("Got a request: {:?}", request);
 
         let reply = PingResponse {

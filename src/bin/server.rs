@@ -1,5 +1,5 @@
+use bson::{doc, Document};
 use serde::{Deserialize, Serialize};
-use bson::{Document, doc};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Value<T> {
@@ -23,7 +23,7 @@ fn main() {
         id: "c".to_string(),
         value: Value::Tombstone,
     };
-    
+
     // Convert them to BSON...
     let doc_a = bson::to_document(&record_a).unwrap();
     let doc_b = bson::to_document(&record_b).unwrap();

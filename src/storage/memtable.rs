@@ -1,15 +1,14 @@
-use std::collections::BTreeMap;
-use bson::{Document, DateTime};
-use bson::oid::ObjectId;
 use anyhow::{anyhow, Result};
+use bson::oid::ObjectId;
+use bson::{DateTime, Document};
+use std::collections::BTreeMap;
 
+use crate::storage::conf::*;
 use crate::storage::record::*;
 use crate::storage::sstable::*;
-use crate::storage::conf::*;
-
 
 /// The in-memory buffer for an LSM Tree.
-/// 
+///
 /// This buffer is comprised of a red-black tree of records, sorted by key.
 #[derive(Default, Debug, Clone)]
 pub struct MemTable {
@@ -40,7 +39,7 @@ impl MemTable {
     }
 
     /// Delete's a value in the MemTable.
-    /// 
+    ///
     /// Note that this doesn't remove the key from the MemTable, but instead
     /// sets the value to a tombstone.
     pub fn del(&mut self, key: &ObjectId) {
@@ -49,33 +48,24 @@ impl MemTable {
 
     /// Gets a value from the MemTable.
     pub fn get(&self, key: &ObjectId) -> Option<Value<Document>> {
-        self.records
-            .get(key)
-            .cloned()
+        self.records.get(key).cloned()
     }
 
     /// Flushes the contents of the MemTable to an SSTable.
     pub fn flush(&self) -> Result<SSTable> {
         // Create a vector of records from the BTreeMap...
-        let records: Vec<_> = self.records
+        let records: Vec<_> = self
+            .records
             .iter()
-            .map(|(key, value)| {
-                Record {
-                    key: *key,
-                    value: value.clone(),
-                }
+            .map(|(key, value)| Record {
+                key: *key,
+                value: value.clone(),
             })
             .collect();
 
         // Get the min/max keys and count from the records...
-        let min_key = records
-            .first()
-            .ok_or(anyhow!("records vec was empty"))?
-            .key;
-        let max_key = records
-            .last()
-            .ok_or(anyhow!("records vec was empty"))?
-            .key;
+        let min_key = records.first().ok_or(anyhow!("records vec was empty"))?.key;
+        let max_key = records.last().ok_or(anyhow!("records vec was empty"))?.key;
         let num_records = records.len();
         let meta = SSTableMeta {
             table_id: ObjectId::new(),
@@ -86,10 +76,7 @@ impl MemTable {
         };
 
         // Create and return!
-        Ok(SSTable {
-            meta,
-            records,
-        })
+        Ok(SSTable { meta, records })
     }
 
     pub fn clear(&mut self) {
@@ -106,9 +93,6 @@ impl MemTable {
         self.size() >= self.max_records
     }
 }
-
-
-
 
 #[cfg(test)]
 mod test {
@@ -133,7 +117,10 @@ mod test {
         mt.set(&k, v);
 
         // Check that the BTree contains the key...
-        assert!(mt.records.contains_key(&k), "Key doesn't exist in the btree");
+        assert!(
+            mt.records.contains_key(&k),
+            "Key doesn't exist in the btree"
+        );
 
         // Get the value back from the memtable...
         let res = mt.get(&k);
@@ -159,20 +146,23 @@ mod test {
         mt.set(&k, v);
 
         // Check that the BTree contains the key...
-        assert!(mt.records.contains_key(&k), "Key doesn't exist in the btree");
+        assert!(
+            mt.records.contains_key(&k),
+            "Key doesn't exist in the btree"
+        );
 
         // Delete the value from the memtable...
         mt.del(&k);
 
         // Check that the key is still in the btree...
-        assert!(mt.records.contains_key(&k), "Key should still exist in the btree after 'deletion'");
-        
+        assert!(
+            mt.records.contains_key(&k),
+            "Key should still exist in the btree after 'deletion'"
+        );
+
         // Check that the returned value is a tombstone...
         let res = mt.get(&k);
         let exp = Some(Value::<Document>::Tombstone);
         assert_eq!(res, exp, "Expecting a present tombstone");
     }
 }
-
-
-

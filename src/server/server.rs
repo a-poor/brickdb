@@ -1,7 +1,6 @@
-use tonic::{Request, Response, Status};
-use super::gen::{PingRequest, PingResponse};
 use super::gen::database_server_server::{DatabaseServer, DatabaseServerServer};
-
+use super::gen::{PingRequest, PingResponse};
+use tonic::{Request, Response, Status};
 
 pub fn create_service(server: BDBDatabaseServer) -> DatabaseServerServer<BDBDatabaseServer> {
     DatabaseServerServer::new(server)
@@ -21,7 +20,8 @@ impl DatabaseServer for BDBDatabaseServer {
     async fn ping(
         &self,
         request: Request<PingRequest>, // Accept request of type HelloRequest
-    ) -> Result<Response<PingResponse>, Status> { // Return an instance of type HelloReply
+    ) -> Result<Response<PingResponse>, Status> {
+        // Return an instance of type HelloReply
         println!("Got a request: {:?}", request);
 
         let reply = PingResponse {

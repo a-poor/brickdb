@@ -1,12 +1,10 @@
-use bson::Document;
-use bson::oid::ObjectId;
 use anyhow::{anyhow, Result};
+use bson::oid::ObjectId;
+use bson::Document;
 
-use crate::storage::record::*;
 use crate::storage::level::*;
 use crate::storage::memtable::*;
-
-
+use crate::storage::record::*;
 
 /// A struct representing an LSM Tree managing both in-memory and on-disk data.
 pub struct LSMTree {
@@ -19,10 +17,10 @@ pub struct LSMTree {
     /// The in-memory buffer for this LSM Tree.
     pub memtable: MemTable,
 
-    /// A memtable that is frozen and in the process of being flushed 
+    /// A memtable that is frozen and in the process of being flushed
     /// to disk. This will keep the data accessible while it is being
     /// flushed but will not allow any new data to be added.
-    /// 
+    ///
     /// If `None`, it isn't in the process of being flushed.
     pub frozen_memtable: Option<MemTable>,
 
@@ -60,7 +58,7 @@ impl LSMTree {
     pub fn del(&mut self, key: &ObjectId) {
         self.memtable.del(key);
     }
-    
+
     /// Get a value from the LSM Tree's on-disk levels.
     async fn get_from_disk(&self, key: &ObjectId) -> Result<Option<Record>> {
         // Iterate through the levels...
@@ -71,9 +69,9 @@ impl LSMTree {
         }
         Ok(None)
     }
-    
+
     /// Get a value from the LSM Tree.
-    /// 
+    ///
     /// This will first check the in-memory buffer, then the on-disk levels.
     pub async fn get(&self, key: &ObjectId) -> Result<Option<Document>> {
         // First try to get it from the memtable...
@@ -132,9 +130,9 @@ impl LSMTree {
     }
 
     /// Compacts the memtable into an SSTable and adds it to the first level.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `force` - If `true`, the memtable will be compacted even if it isn't full.
     async fn compact_memtable(&mut self, force: bool) -> Result<()> {
         // Is the memtable full?
@@ -153,7 +151,8 @@ impl LSMTree {
         self.memtable = MemTable::new();
 
         // Flush the frozen memtable to an SSTable...
-        let sstable = self.frozen_memtable
+        let sstable = self
+            .frozen_memtable
             .as_ref()
             .ok_or(anyhow!("Failed to get frozen memtable"))?
             .flush()?;
@@ -164,7 +163,7 @@ impl LSMTree {
         }
 
         // Add the ss-table to the first level...
-        // (There should now be at least one level) 
+        // (There should now be at least one level)
         self.levels[0].add_sstable(&sstable).await?;
 
         // Remove the frozen memtable...
@@ -173,9 +172,9 @@ impl LSMTree {
     }
 
     /// Compacts the given level into the next level.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `n` - The level number (1-indexed).
     /// * `force` - If `true`, the memtable will be compacted even if it isn't full.
     async fn compact_level(&mut self, n: usize, force: bool) -> Result<()> {
@@ -187,23 +186,27 @@ impl LSMTree {
         if n > level_len {
             return Err(anyhow!("Level {} not found", n));
         }
-        
+
         // Get the n-th level...
         let i = n - 1; // The level number is 1-indexed...
-        
+
         // Get the sstable...
         // Wrapped in a scope to ensure the mutable borrow of self.levels is dropped
-        let CompactResult { new_table, old_table_ids } = {
-            let level = self.levels
+        let CompactResult {
+            new_table,
+            old_table_ids,
+        } = {
+            let level = self
+                .levels
                 .get_mut(i)
                 .ok_or(anyhow!("Level {} not found", n))?;
-            
+
             // Is the level full?
             if !force || !level.is_full() {
                 // Not full, stop here...
                 return Ok(());
             }
-        
+
             // Compact the level...
             level.compact_tables().await?
         };
@@ -215,38 +218,36 @@ impl LSMTree {
 
         // Add the ss-table to the next level...
         // (There should now be at least n levels)
-        self.levels[i+1].add_sstable(&new_table).await?;
-        
+        self.levels[i + 1].add_sstable(&new_table).await?;
+
         // Clear the old level...
         self.levels[i].clear(&old_table_ids).await?;
         Ok(())
     }
 
     /// Adds a new level to the LSM Tree.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `to_disk` - If `true`, the level will be stored on disk.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A `Result` containing `Ok(())` if the level was added successfully.
     pub async fn add_level(&mut self, to_disk: bool) -> Result<()> {
         // Create a new level...
-        let level = Level::new(
-            self.path.as_str(), 
-            self.levels.len() + 1, 
-            vec![],
-            to_disk,
-        ).await?;
+        let level = Level::new(self.path.as_str(), self.levels.len() + 1, vec![], to_disk).await?;
 
         // Add the level to the LSM Tree...
         self.levels.push(level);
         Ok(())
     }
 
-    
-    pub async fn get_range(&self, _start: Option<&ObjectId>, _end: Option<&ObjectId>) -> Result<Vec<Document>> {
+    pub async fn get_range(
+        &self,
+        _start: Option<&ObjectId>,
+        _end: Option<&ObjectId>,
+    ) -> Result<Vec<Document>> {
         todo!();
     }
 
@@ -257,9 +258,7 @@ impl LSMTree {
     pub async fn get_max(&self) -> Result<Option<Document>> {
         todo!();
     }
-
 }
-
 
 /// A struct representing the metadata for an LSM Tree.
 pub struct LSMTreeMeta {
@@ -275,4 +274,3 @@ pub struct LSMTreeMeta {
 
 #[cfg(test)]
 mod test {}
-

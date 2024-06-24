@@ -1,8 +1,7 @@
-use std::cmp::Ordering;
-use bson::{Document, doc};
 use bson::oid::ObjectId;
+use bson::{doc, Document};
 use serde::{Deserialize, Serialize};
-
+use std::cmp::Ordering;
 
 /// A record stored in an SSTable.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -48,7 +47,7 @@ impl Ord for Record {
     }
 }
 
-/// A value stored in an SSTable. Can represent either a true value or a 
+/// A value stored in an SSTable. Can represent either a true value or a
 /// tombstone (indicating that the record has been deleted).
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Value<T> {
@@ -60,7 +59,6 @@ pub enum Value<T> {
 }
 
 impl Eq for Value<Document> {}
-
 
 #[cfg(test)]
 mod test {
@@ -75,14 +73,14 @@ mod test {
             value: Value::Data(doc! {
                 "msg": "Hello, World",
                 "num": 42,
-            })
+            }),
         };
         let r2 = Record {
             key: ObjectId::new(),
             value: Value::Data(doc! {
                 "msg": "What's up",
                 "num": 0,
-            })
+            }),
         };
         assert_ne!(r1, r2, "Different records, shouldn't match");
     }
@@ -94,7 +92,7 @@ mod test {
             value: Value::Data(doc! {
                 "msg": "Hello, World",
                 "num": 42,
-            })
+            }),
         };
         let r2 = Record {
             key: r1.key,
@@ -110,15 +108,14 @@ mod test {
             value: Value::Data(doc! {
                 "msg": "What's up",
                 "num": 0,
-            })
+            }),
         };
         let r2 = Record {
             key: r1.key,
             value: Value::Tombstone,
         };
         assert_ne!(r1, r2, "Same key but different values, shouldn't match");
-        
-        
+
         let r3 = Record {
             key: r1.key,
             value: Value::Tombstone,
@@ -129,10 +126,10 @@ mod test {
     #[test]
     fn record_ordering() {
         // Create object IDs and assert they're ordered...
-        let oid1 = ObjectId::parse_str("649cbc250a24a2522fc95f74")
-            .expect("Couldn't parse ObjectId");
-        let oid2 = ObjectId::parse_str("649cbc31f7ad863f0880dc04")
-            .expect("Couldn't parse ObjectId");
+        let oid1 =
+            ObjectId::parse_str("649cbc250a24a2522fc95f74").expect("Couldn't parse ObjectId");
+        let oid2 =
+            ObjectId::parse_str("649cbc31f7ad863f0880dc04").expect("Couldn't parse ObjectId");
         assert!(oid1 < oid2, "oid1 should be less than oid2");
 
         // Double check the ordering...
@@ -146,7 +143,7 @@ mod test {
             value: Value::Data(doc! {
                 "msg": "Hello, World",
                 "num": 42,
-            })
+            }),
         };
         let r2 = Record {
             key: oid2,
@@ -181,11 +178,7 @@ mod test {
         };
 
         // Create a vector of records...
-        let records = vec![
-            r1.clone(), 
-            r2.clone(), 
-            r3.clone(),
-        ];
+        let records = vec![r1.clone(), r2.clone(), r3.clone()];
 
         // Search for the records...
         let p1 = records.binary_search(&Record {
@@ -218,5 +211,3 @@ mod test {
         assert_eq!(p4, Err(3), "r4 should be at position 2");
     }
 }
-
-
