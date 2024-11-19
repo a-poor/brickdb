@@ -7,9 +7,13 @@ use crate::storage::conf::*;
 use crate::storage::record::*;
 use crate::storage::sstable::*;
 
+use super::wal::WAL;
+
 /// The in-memory buffer for an LSM Tree.
 ///
 /// This buffer is comprised of a red-black tree of records, sorted by key.
+/// 
+/// TODO - Maybe use a wrapping u8 to track the number so it can wrap around and keep the size small?
 #[derive(Default, Debug, Clone)]
 pub struct MemTable {
     /// The records in the MemTable.
@@ -17,6 +21,8 @@ pub struct MemTable {
 
     /// The maximum number of records allowed in the MemTable.
     pub max_records: usize,
+
+    pub wal: WAL,
 }
 
 impl MemTable {

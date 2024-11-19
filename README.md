@@ -32,3 +32,10 @@ A small basic proof-of-concept database written in Rust. I wouldn't recommend us
 - [ ] Add metadata for the `storage::lsm::LSMTree` so it can be read back in.
 - [ ] Create a separate reader/writer implementation for reading/writing data. It can simplify async writing of `bson` data, compression (share encoders/decoders?), and encryption.
 - [ ] Implement the `WAL`
+
+
+## Database Disk Structure
+
+```
+
+```
