@@ -37,5 +37,12 @@ A small basic proof-of-concept database written in Rust. I wouldn't recommend us
 ## Database Disk Structure
 
 ```
-
+...
 ```
+
+## To-Do
+- [ ] Define on-disk structure for LSM
+- [ ] Implement WAL
+- [ ] Add compression when reading/writing from/to disk
+- [ ] Add encryption when reading/writing from/to disk
+- [ ] Add indexes

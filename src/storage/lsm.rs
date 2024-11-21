@@ -6,7 +6,8 @@ use crate::storage::level::*;
 use crate::storage::memtable::*;
 use crate::storage::record::*;
 
-/// A struct representing an LSM Tree managing both in-memory and on-disk data.
+/// A struct representing an LSM Tree managing both in-memory
+/// and on-disk data.
 pub struct LSMTree {
     /// The unique identifier for this LSM Tree.
     pub id: ObjectId,
@@ -22,6 +23,8 @@ pub struct LSMTree {
     /// flushed but will not allow any new data to be added.
     ///
     /// If `None`, it isn't in the process of being flushed.
+    /// 
+    /// TODO - Maybe re-evaluate this process.
     pub frozen_memtable: Option<MemTable>,
 
     /// The on-disk levels for this LSM Tree.
