@@ -1,3 +1,4 @@
 //! Code for managing table indexes.
 
-pub const PLACEHOLDER: &str = "placeholder";
+pub mod bptree;
+
