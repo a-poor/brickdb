@@ -1,4 +1,4 @@
-use std::path;
+use std::path::{self, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use bson::Bson;
 use bson::oid::ObjectId;
@@ -161,23 +161,48 @@ pub struct DiskNode {
 
 impl DiskNode {
     /// Creates a new `DiskNode` and writes it to disk.
-    pub fn new() -> Self {
-        todo!();
+    pub fn new(dir_name: &str, parent: Option<Uuid>, node: Node) -> Result<Self> {
+        let id = Uuid::new_v4();
+        let node = DiskNode {
+            id,
+            parent,
+            node,
+        };
+        node.write(dir_name)
+            .context(format!("Failed to write node={} to disk", &id))?;
+        Ok(node)
     }
 
     /// Loads a `DiskNode` from disk.
-    pub fn load() -> Self {
-        todo!();
+    pub fn load(dir_name: &str, id: Uuid) -> Result<Self> {
+        let p = path::Path::new(&dir_name).join(id.to_string());
+        let b = std::fs::read(&p)
+            .context(format!("Failed to read node={} from disk", &id))?;
+        let node: DiskNode = bson::from_slice(&b)
+            .context(format!("Failed to parse node={} from json", &id))?;
+        Ok(node)
     }
 
-    /// Updates a `DiskNode` on disk.
-    pub fn update() -> Result<()> {
-        todo!();
+    /// Writes a `DiskNode` to disk.
+    pub fn write(&self, dir_name: &str) -> Result<()> {
+        let p = self.file_path(&dir_name);
+        let b = bson::to_vec(&self)
+            .context(format!("Failed to encode node={} as json", &self.id))?;
+        std::fs::write(p, b)
+            .context(format!("Failed to write node={} to disk", &self.id))?;
+        Ok(())
     }
 
     /// Deletes a `DiskNode` from disk.
-    pub fn delete() -> Result<()> {
-        todo!();
+    pub fn delete(&self, dir_name: &str) -> Result<()> {
+        let p = self.file_path(&dir_name);
+        std::fs::remove_file(p)
+            .context(format!("Failed to delete node={} from disk", &self.id))?;
+        Ok(())
+    }
+
+    fn file_path(&self, dir_name: &str) -> String {
+        path::Path::new(&dir_name).join(self.id.to_string()).to_string_lossy().into()
     }
 }
 
