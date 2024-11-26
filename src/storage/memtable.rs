@@ -12,7 +12,7 @@ use super::wal::WAL;
 /// The in-memory buffer for an LSM Tree.
 ///
 /// This buffer is comprised of a red-black tree of records, sorted by key.
-/// 
+///
 /// TODO - Maybe use a wrapping u8 to track the number so it can wrap around and keep the size small?
 #[derive(Default, Debug, Clone)]
 pub struct MemTable {

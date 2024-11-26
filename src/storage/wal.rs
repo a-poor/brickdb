@@ -3,7 +3,7 @@ use anyhow::Result;
 
 /// A Write Ahead Log (WAL) that stores database writes
 /// to disk for durability.
-/// 
+///
 /// The WAL is a log of all database record modificiations. It's used
 /// in case of a crash to ensure that all changes are persisted.
 #[derive(Default, Debug, Clone)]
@@ -29,7 +29,7 @@ impl WAL {
     pub fn read(&self) -> Result<Vec<Record>> {
         todo!();
     }
-    
+
     pub fn delete(&self) -> Result<Vec<Record>> {
         todo!();
     }
