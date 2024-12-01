@@ -79,7 +79,8 @@ impl BPTree {
     /// Writes the tree's metadata to disk.
     fn write_meta(&self) -> Result<()> {
         // Get the path to the meta file
-        let p = std::path::Path::new(&self.dir_path).join(BPTREE_META_NAME);
+        let p = std::path::Path::new(&self.dir_path)
+            .join(BPTREE_META_NAME);
 
         // Encode the metadata
         let b = serde_json::to_string(&self.meta).context(format!(
@@ -95,12 +96,33 @@ impl BPTree {
     }
 
     /// Creates a new node and writes it to disk.
-    fn create_node(&self) -> Result<()> {
-        todo!();
+    fn create_node(&mut self, parent: Option<Uuid>, node: Node) -> Result<DiskNode> {
+        // Create the node
+        // (Note: This also writes it to disk)
+        let node = DiskNode::new(&self.dir_path, parent, node)?;
+
+        // If the node is the root (aka no parent), mark that
+        // in the metadata
+        if parent.is_none() {
+            self.meta.root_node_id = Some(node.id);
+        }
+
+        // Add the key to the metadata
+        let pos = match self.meta.node_ids.binary_search(&node.id) {
+            Ok(pos) => pos,
+            Err(pos) => pos,
+        };
+        self.meta.node_ids.insert(pos, node.id);
+
+        // Re-write the metadata
+        self.write_meta()?;
+
+        // Return the node
+        Ok(node)
     }
 
     /// Gets a node with the given `id` from disk.
-    fn get_node(&self, id: Uuid) -> Result<()> {
+    fn get_node(&self, id: Uuid) -> Result<DiskNode> {
         // Check that a node with the given id exists
         if (&self).meta.node_ids.binary_search(&id).is_ok() {
             // TODO - Create custom error for this
@@ -111,18 +133,41 @@ impl BPTree {
             ));
         }
 
-        todo!()
+        DiskNode::load(&self.dir_path, id)
     }
 
-    fn update_node(&self) -> Result<()> {
+    fn update_node_content(&mut self, id: Uuid, node: Node) -> Result<()> {
+        // Does the node exist?
+        if (&self).meta.node_ids.binary_search(&id).is_err() {
+            // TODO - Create custom error for this
+            return Err(anyhow!(
+                "The node={} doesn't exist in the index={}",
+                &self.meta.id,
+                &id
+            ));
+        }
         todo!();
     }
 
     /// Deletes a node with the given `id` from disk.
-    fn delete_node(&self, _id: Uuid) -> Result<()> {
-        // - delete the node
-        // - remove it from the metadata (and write)
-        todo!();
+    /// 
+    /// Note: This may need to be replaced with something or some things
+    /// more case-specific for cases like moving/merging/splitting nodes.
+    /// And those things may need to perform multiple operations before 
+    /// the disk-updates get flushed (e.g. re-write metadata).
+    fn delete_node(&mut self, id: Uuid) -> Result<()> {
+        // Delete it from the metadata and write
+        match self.meta.node_ids.binary_search(&id) {
+            Ok(pos) => {
+                // Remove
+                self.meta.node_ids.remove(pos);
+
+                // Re-write
+                self.write_meta()?;
+            },
+            Err(_pos) => {},
+        };
+        Ok(())
     }
 }
 
@@ -173,19 +218,22 @@ impl DiskNode {
 
     /// Loads a `DiskNode` from disk.
     pub fn load(dir_name: &str, id: Uuid) -> Result<Self> {
-        let p = std::path::Path::new(&dir_name).join(id.to_string());
-        let b = std::fs::read(&p).context(format!("Failed to read node={} from disk", &id))?;
-        let node: DiskNode =
-            bson::from_slice(&b).context(format!("Failed to parse node={} from json", &id))?;
+        let p = std::path::Path::new(&dir_name)
+            .join(id.to_string());
+        let b = std::fs::read(&p)
+            .context(format!("Failed to read node={} from disk", &id))?;
+        let node: DiskNode = bson::from_slice(&b)
+            .context(format!("Failed to parse node={} from json", &id))?;
         Ok(node)
     }
 
     /// Writes a `DiskNode` to disk.
     pub fn write(&self, dir_name: &str) -> Result<()> {
         let p = self.file_path(&dir_name);
-        let b =
-            bson::to_vec(&self).context(format!("Failed to encode node={} as json", &self.id))?;
-        std::fs::write(p, b).context(format!("Failed to write node={} to disk", &self.id))?;
+        let b = bson::to_vec(&self)
+            .context(format!("Failed to encode node={} as json", &self.id))?;
+        std::fs::write(p, b)
+            .context(format!("Failed to write node={} to disk", &self.id))?;
         Ok(())
     }
 
@@ -210,9 +258,12 @@ pub enum Node {
     Leaf(LeafNode),
 }
 
+/// Internal nodes contain pointers from key ranges 
+/// to other nodes -- either internal or leaf.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InternalNode;
 
+/// Leaf nodes contain pointers from keys to record IDs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode;
 
