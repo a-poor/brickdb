@@ -246,7 +246,7 @@ impl LSMTree {
         Ok(())
     }
 
-    pub async fn get_range(
+    pub async fn scan(
         &self,
         _start: Option<&ObjectId>,
         _end: Option<&ObjectId>,
@@ -254,10 +254,12 @@ impl LSMTree {
         todo!();
     }
 
+    /// TODO - What was this supposed to do?
     pub async fn get_min(&self) -> Result<Option<Document>> {
         todo!();
     }
 
+    /// TODO - What was this supposed to do?
     pub async fn get_max(&self) -> Result<Option<Document>> {
         todo!();
     }

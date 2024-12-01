@@ -24,8 +24,25 @@ pub struct BPTree {
 
 impl BPTree {
     /// Creates a new B+ tree index.
-    pub fn new() -> Self {
-        todo!();
+    pub fn new(dir_path: &str, name: &str, key: &str, distinct: bool) -> Result<Self> {
+        // Create the tree object
+        let tree = Self {
+            meta: BPTreeMeta {
+                id: Uuid::new_v4(),
+                name: name.to_string(),
+                key: key.to_string(),
+                distinct,
+                root_node_id: None,
+                node_ids: Vec::new(),
+            },
+            dir_path: dir_path.to_string(),
+        };
+
+        // Write the meta to disk
+        tree.write_meta()?;
+
+        // Return it
+        Ok(tree)
     }
 
     /// Loads a B+ tree index from disk.
